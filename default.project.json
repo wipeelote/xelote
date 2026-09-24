@@ -1,0 +1,28 @@
+{
+  "name": "DebrisClear",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "DebrisClear": {
+        "$path": "src/shared"
+      }
+    },
+    "ServerScriptService": {
+      "DebrisClear": {
+        "$path": "src/server"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "DebrisClear": {
+          "$path": "src/client"
+        }
+      }
+    },
+    "Players": {
+      "$properties": {
+        "CharacterAutoLoads": false
+      }
+    }
+  }
+}
