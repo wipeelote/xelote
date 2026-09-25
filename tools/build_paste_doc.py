@@ -80,10 +80,13 @@ def main():
         "   - A `Script` or `LocalScript` must have its class set exactly as written. Scripts "
         "find each other with `script.Parent.<Name>`, so the names must match exactly "
         "(case-sensitive, no extension).\n"
-        "3. Leave the rest of the place alone. The server script builds the arena, "
-        "pit, platforms, and spawn hub at runtime and disables any other SpawnLocations.\n"
+        "3. Leave the rest of the place alone (a Baseplate is fine; it can be deleted). The server script builds "
+        "the whole NEON PIT set at runtime: lava crater, stage, towers, light rig, platforms, spawn hub and "
+        "showcase gallery, and disables any other SpawnLocations.\n"
         "4. Optional: set `Players.CharacterAutoLoads = false`. The server also sets it at runtime.\n"
-        "5. To test: set `MIN_PLAYERS = 1` in `Config` for solo play, then press **Play**, "
+        "5. In the Explorer select **Lighting** and set **Technology = Future** (a script can't set it). "
+        "ShadowMap works too but loses the glossy floor reflections.\n"
+        "6. To test: set `MIN_PLAYERS = 1` in `Config` for solo play, then press **Play**, "
         "or use **Test → Clients and Servers** with 2–4 players.\n"
     )
     md.append(
