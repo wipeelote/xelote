@@ -17,7 +17,7 @@ local DebrisVisuals = {}
 
 local template: BasePart? = nil
 local tracked: { [BasePart]: BasePart } = {}
-local offsets: { [BasePart]: CFrame } = {}
+local offsets: { [BasePart]: CFrame? } = {}
 local folder: Folder
 
 local function getTemplate(): BasePart
