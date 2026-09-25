@@ -1,6 +1,7 @@
 --!strict
 -- Debris Clear server entry point and round loop.
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -9,6 +10,7 @@ local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
 local Remotes = require(Shared.Remotes)
 local Arena = require(script.Parent.Arena)
+local MapKit = require(script.Parent.Map.MapKit)
 local LoadService = require(script.Parent.LoadService)
 local DebrisService = require(script.Parent.DebrisService)
 local ThrowService = require(script.Parent.ThrowService)
@@ -101,9 +103,50 @@ RunService.Heartbeat:Connect(function()
 			humanoid.Health = 0
 		elseif not competing and position.Y < rescueY and not Arena.inArenaColumn(position) then
 			root.AssemblyLinearVelocity = Vector3.zero
-			character:PivotTo(Arena.hubReturnCFrame())
+			character:PivotTo(Arena.nearestSafeCFrame(position))
 		end
 	end
+end)
+
+---------------------------------------------------------------------------
+-- Teleport pads (hub <-> showcase). Spectators only; competitors stay put.
+---------------------------------------------------------------------------
+local lastTeleport: { [Player]: number } = {}
+
+local function bindTeleportPad(pad: Instance)
+	if not pad:IsA("BasePart") then
+		return
+	end
+	pad.Touched:Connect(function(hit)
+		local character = hit:FindFirstAncestorOfClass("Model")
+		local player = character and Players:GetPlayerFromCharacter(character)
+		if not player or not character then
+			return
+		end
+		if roundActive and LoadService.isAlive(player) then
+			return
+		end
+		local now = os.clock()
+		if now - (lastTeleport[player] or 0) < Config.TELEPORT_COOLDOWN then
+			return
+		end
+		local destination = Arena.destinationCFrame(tostring(pad:GetAttribute("Destination")))
+		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not destination or not root then
+			return
+		end
+		lastTeleport[player] = now
+		root.AssemblyLinearVelocity = Vector3.zero
+		character:PivotTo(destination)
+	end)
+end
+
+CollectionService:GetInstanceAddedSignal(MapKit.TELEPORT_TAG):Connect(bindTeleportPad)
+for _, pad in CollectionService:GetTagged(MapKit.TELEPORT_TAG) do
+	bindTeleportPad(pad)
+end
+Players.PlayerRemoving:Connect(function(player)
+	lastTeleport[player] = nil
 end)
 
 ---------------------------------------------------------------------------

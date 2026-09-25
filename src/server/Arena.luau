@@ -1,6 +1,7 @@
 --!strict
 -- Builds the arena: 4 hexagonal platforms on piston rods around a central pit,
--- a ring-meter SurfaceGui on each deck, and a raised spawn hub overlooking it all.
+-- with a ring-meter SurfaceGui on each deck. The surroundings (pit, towers,
+-- spawn hub, showcase, lighting) are built by the modules in Map/.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,6 +10,13 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
 local HexGeometry = require(Shared.HexGeometry)
+local Map = script.Parent.Map
+local Pit = require(Map.Pit)
+local Towers = require(Map.Towers)
+local Hub = require(Map.Hub)
+local Showcase = require(Map.Showcase)
+local MapLighting = require(Map.Lighting)
+local PlatformDressing = require(Map.PlatformDressing)
 
 local Arena = {}
 
@@ -25,6 +33,7 @@ Arena.folder = nil :: Folder?
 Arena.hubSpawn = nil :: SpawnLocation?
 Arena.hubFloorY = 0
 Arena.boardStatus = nil :: TextLabel?
+Arena.showcaseSpawnCFrame = nil :: CFrame?
 
 local PLATFORM_TAG = "DebrisClearPlatform"
 
@@ -253,6 +262,10 @@ local function buildPlatform(slot: number, parent: Instance): Platform
 	rod.CFrame = topCFrame * CFrame.new(0, -Config.PLATFORM_THICKNESS - rodLength / 2, 0) * CFrame.Angles(0, 0, math.rad(90))
 	rod.Parent = model
 
+	-- Visual dressing (rim, lights, slot number). Added before restPivots is
+	-- collected so it rides the piston drop with the deck.
+	PlatformDressing.dress(model, topCFrame, color, slot)
+
 	buildRingMeter(topCFrame, model)
 
 	model:SetAttribute("Slot", slot)
@@ -279,127 +292,9 @@ local function buildPlatform(slot: number, parent: Instance): Platform
 	}
 end
 
-local function buildPit(parent: Instance)
-	local c = Config.ARENA_CENTER
-	local floor = anchoredPart("Part", {
-		Name = "PitFloor",
-		Size = Vector3.new(4 * Config.ARENA_RADIUS + 60, 2, 4 * Config.ARENA_RADIUS + 60),
-		Color = Color3.fromRGB(25, 20, 20),
-		Material = Enum.Material.CorrodedMetal,
-	})
-	floor.CFrame = CFrame.new(c.X, c.Y - Config.PIT_DEPTH - 1, c.Z)
-	floor.Parent = parent
-
-	local glow = anchoredPart("Part", {
-		Name = "PitGlow",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(0.2, Config.ARENA_RADIUS * 1.2, Config.ARENA_RADIUS * 1.2),
-		Color = Color3.fromRGB(255, 90, 30),
-		Material = Enum.Material.Neon,
-		CanCollide = false,
-		CanQuery = false,
-	})
-	glow.CFrame = CFrame.new(c.X, c.Y - Config.PIT_DEPTH + 0.1, c.Z) * CFrame.Angles(0, 0, math.rad(90))
-	glow.Parent = parent
-
-end
-
--- Raised overlook hub facing the pit: the only enabled SpawnLocation, well
--- outside the arena kill column, with a glass front rail and a status board.
-local function buildHub(parent: Instance)
-	local c = Config.ARENA_CENTER
-	local top = c + Config.HUB_OFFSET
-	-- -Z faces the arena, so "front" is the edge overlooking the pit.
-	local hubCFrame = CFrame.lookAt(top, Vector3.new(c.X, top.Y, c.Z))
-	local W, D, H = Config.HUB_SIZE.X, Config.HUB_SIZE.Z, Config.HUB_RAIL_HEIGHT
-
-	local model = Instance.new("Model")
-	model.Name = "SpawnHub"
-
-	local floor = anchoredPart("Part", {
-		Name = "HubFloor",
-		Size = Config.HUB_SIZE,
-		Color = Color3.fromRGB(58, 60, 68),
-		Material = Enum.Material.Concrete,
-	})
-	floor.CFrame = hubCFrame * CFrame.new(0, -Config.HUB_SIZE.Y / 2, 0)
-	floor.Parent = model
-
-	local function rail(name: string, size: Vector3, offset: CFrame, glass: boolean)
-		local part = anchoredPart("Part", {
-			Name = name,
-			Size = size,
-			Color = if glass then Color3.fromRGB(170, 210, 255) else Color3.fromRGB(80, 82, 92),
-			Material = if glass then Enum.Material.Glass else Enum.Material.Metal,
-			Transparency = if glass then 0.7 else 0,
-		})
-		part.CFrame = hubCFrame * offset
-		part.Parent = model
-		return part
-	end
-	rail("FrontRail", Vector3.new(W, H, 0.5), CFrame.new(0, H / 2, -D / 2 + 0.25), true)
-	rail("LeftRail", Vector3.new(0.5, H, D), CFrame.new(-W / 2 + 0.25, H / 2, 0), false)
-	rail("RightRail", Vector3.new(0.5, H, D), CFrame.new(W / 2 - 0.25, H / 2, 0), false)
-
-	-- Neon trim along the overlook edge.
-	local trim = anchoredPart("Part", {
-		Name = "EdgeTrim",
-		Size = Vector3.new(W, 0.3, 0.6),
-		Color = Color3.fromRGB(255, 120, 40),
-		Material = Enum.Material.Neon,
-		CanCollide = false,
-	})
-	trim.CFrame = hubCFrame * CFrame.new(0, H + 0.15, -D / 2 + 0.25)
-	trim.Parent = model
-
-	-- Back wall doubles as a scoreboard, readable from the hub and the platforms.
-	local boardHeight = 16
-	local board = anchoredPart("Part", {
-		Name = "StatusBoard",
-		Size = Vector3.new(W, boardHeight, 1),
-		Color = Color3.fromRGB(28, 28, 34),
-		Material = Enum.Material.SmoothPlastic,
-	})
-	board.CFrame = hubCFrame * CFrame.new(0, boardHeight / 2, D / 2 - 0.5)
-	board.Parent = model
-	local boardGui = Instance.new("SurfaceGui")
-	boardGui.Name = "Board"
-	boardGui.Face = Enum.NormalId.Front
-	boardGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	boardGui.PixelsPerStud = 20
-	boardGui.LightInfluence = 0
-	boardGui.Parent = board
-	local title = Instance.new("TextLabel")
-	title.Name = "Title"
-	title.BackgroundTransparency = 1
-	title.Size = UDim2.fromScale(1, 0.45)
-	title.Font = Enum.Font.GothamBlack
-	title.TextScaled = true
-	title.TextColor3 = Color3.fromRGB(255, 140, 50)
-	title.Text = "DEBRIS CLEAR"
-	title.Parent = boardGui
-	local statusText = title:Clone()
-	statusText.Name = "Status"
-	statusText.Position = UDim2.fromScale(0.05, 0.5)
-	statusText.Size = UDim2.fromScale(0.9, 0.35)
-	statusText.Font = Enum.Font.GothamBold
-	statusText.TextColor3 = Color3.new(1, 1, 1)
-	statusText.Text = ""
-	statusText.Parent = boardGui
-	Arena.boardStatus = statusText
-
-	-- Support pillars down to the ground, purely visual.
-	for _, x in { -W / 3, W / 3 } do
-		local pillarHeight = top.Y
-		local pillar = anchoredPart("Part", {
-			Name = "Pillar",
-			Size = Vector3.new(4, pillarHeight, 4),
-			Color = Color3.fromRGB(70, 70, 78),
-			Material = Enum.Material.Metal,
-		})
-		pillar.CFrame = hubCFrame * CFrame.new(x, -Config.HUB_SIZE.Y - pillarHeight / 2, 0)
-		pillar.Parent = model
-	end
+function Arena.build()
+	local folder = Instance.new("Folder")
+	folder.Name = "DebrisClearArena"
 
 	-- Ours is the only enabled spawn, so nobody spawns inside the pit.
 	for _, d in workspace:GetDescendants() do
@@ -407,28 +302,19 @@ local function buildHub(parent: Instance)
 			d.Enabled = false
 		end
 	end
-	local spawn = Instance.new("SpawnLocation")
-	spawn.Name = "HubSpawn"
-	spawn.Anchored = true
-	spawn.Neutral = true
-	spawn.Duration = 0
-	spawn.Size = Vector3.new(10, 1, 10)
-	spawn.Color = Color3.fromRGB(255, 140, 50)
-	spawn.Material = Enum.Material.SmoothPlastic
-	-- Facing the arena, so players spawn looking out over the pit.
-	spawn.CFrame = hubCFrame * CFrame.new(0, 0.5, D / 4)
-	spawn.Parent = model
 
-	model.Parent = parent
-	Arena.hubSpawn = spawn
-	Arena.hubFloorY = top.Y
-end
+	MapLighting.apply()
+	Pit.build(folder)
+	Towers.build(folder)
 
-function Arena.build()
-	local folder = Instance.new("Folder")
-	folder.Name = "DebrisClearArena"
-	buildPit(folder)
-	buildHub(folder)
+	local hub = Hub.build(folder)
+	Arena.hubSpawn = hub.spawn
+	Arena.boardStatus = hub.statusLabel
+	Arena.hubFloorY = hub.floorY
+
+	local showcase = Showcase.build(folder)
+	Arena.showcaseSpawnCFrame = showcase.spawnCFrame
+
 	for slot = 1, Config.MAX_PLAYERS do
 		table.insert(Arena.platforms, buildPlatform(slot, folder))
 	end
@@ -458,6 +344,31 @@ end
 function Arena.hubReturnCFrame(): CFrame
 	local spawn = Arena.hubSpawn :: SpawnLocation
 	return spawn.CFrame * CFrame.new(0, 3.5, 0)
+end
+
+-- Teleport pad destinations, by the pad's "Destination" attribute.
+function Arena.destinationCFrame(name: string): CFrame?
+	if name == "Hub" then
+		return Arena.hubReturnCFrame()
+	elseif name == "Showcase" then
+		return Arena.showcaseSpawnCFrame
+	end
+	return nil
+end
+
+-- Closest safe spot (hub or showcase) to put a fallen spectator back on.
+function Arena.nearestSafeCFrame(position: Vector3): CFrame
+	local best = Arena.hubReturnCFrame()
+	local showcase = Arena.showcaseSpawnCFrame
+	if showcase then
+		local function flatDistance(cf: CFrame): number
+			return (Vector3.new(cf.X, 0, cf.Z) - Vector3.new(position.X, 0, position.Z)).Magnitude
+		end
+		if flatDistance(showcase) < flatDistance(best) then
+			best = showcase
+		end
+	end
+	return best
 end
 
 function Arena.setBoardStatus(text: string)

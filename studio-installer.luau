@@ -3,22 +3,30 @@
 -- Re-running it replaces the three DebrisClear folders with fresh copies.
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local recording = ChangeHistoryService:TryBeginRecording("Install Debris Clear")
-local function folderAt(path)
+local function ensureFolder(path)
 	local parent = game
-	for segment in string.gmatch(path, "[^%.]+") do
-		parent = parent:FindFirstChild(segment) or game:GetService(segment)
+	local segments = string.split(path, ".")
+	for i, segment in segments do
+		local child = parent:FindFirstChild(segment)
+		if not child and i == 1 then child = game:GetService(segment) end
+		if not child then
+			child = Instance.new("Folder")
+			child.Name = segment
+			child.Parent = parent
+		end
+		parent = child
 	end
-	local old = parent:FindFirstChild("DebrisClear")
-	if old then old:Destroy() end
-	local folder = Instance.new("Folder")
-	folder.Name = "DebrisClear"
-	folder.Parent = parent
-	return folder
+	return parent
 end
+-- Start fresh: remove any previous install.
+do local old = ensureFolder("ReplicatedStorage"):FindFirstChild("DebrisClear") if old then old:Destroy() end end
+do local old = ensureFolder("ServerScriptService"):FindFirstChild("DebrisClear") if old then old:Destroy() end end
+do local old = ensureFolder("StarterPlayer.StarterPlayerScripts"):FindFirstChild("DebrisClear") if old then old:Destroy() end end
 local folders = {
-	["ReplicatedStorage"] = folderAt("ReplicatedStorage"),
-	["ServerScriptService"] = folderAt("ServerScriptService"),
-	["StarterPlayer.StarterPlayerScripts"] = folderAt("StarterPlayer.StarterPlayerScripts"),
+	["ReplicatedStorage.DebrisClear"] = ensureFolder("ReplicatedStorage.DebrisClear"),
+	["ServerScriptService.DebrisClear"] = ensureFolder("ServerScriptService.DebrisClear"),
+	["ServerScriptService.DebrisClear.Map"] = ensureFolder("ServerScriptService.DebrisClear.Map"),
+	["StarterPlayer.StarterPlayerScripts.DebrisClear"] = ensureFolder("StarterPlayer.StarterPlayerScripts.DebrisClear"),
 }
 local function add(parentPath, className, name, source)
 	local s = Instance.new(className)
@@ -26,7 +34,7 @@ local function add(parentPath, className, name, source)
 	s.Source = source
 	s.Parent = folders[parentPath]
 end
-add("ReplicatedStorage", "ModuleScript", "Config", [=====[
+add("ReplicatedStorage.DebrisClear", "ModuleScript", "Config", [=====[
 --!strict
 -- Every tunable number for Debris Clear lives here.
 -- Values marked PLACEHOLDER are first guesses meant to be tuned in playtests.
@@ -65,6 +73,10 @@ Config.HUB_RAIL_HEIGHT = 4 -- PLACEHOLDER
 -- Falling this far below the hub floor (outside the arena) teleports you back
 -- to the hub instead of killing you.
 Config.HUB_RESCUE_DEPTH = 30 -- PLACEHOLDER
+Config.TELEPORT_COOLDOWN = 1.5 -- PLACEHOLDER: seconds between pad teleports per player
+-- Showcase gallery floor center relative to ARENA_CENTER. Kept at hub height
+-- and far outside the arena so the kill line and rescue logic ignore it.
+Config.SHOWCASE_OFFSET = Vector3.new(180, 28, 95) -- PLACEHOLDER
 Config.PLATFORM_COLORS = { -- PLACEHOLDER: one per platform slot
 	Color3.fromRGB(255, 89, 89),
 	Color3.fromRGB(89, 170, 255),
@@ -156,52 +168,55 @@ Config.RING_COLOR_DANGER = Color3.fromRGB(255, 60, 60)
 
 return Config
 ]=====])
-add("ReplicatedStorage", "ModuleScript", "HexGeometry", [=====[
+add("ReplicatedStorage.DebrisClear", "ModuleScript", "Ballistics", [=====[
 --!strict
--- Regular hexagon math. Hexes are "pointy along local X": vertex i sits at
--- angle i * 60 degrees in the platform's local XZ plane.
+-- Throw math shared by the server (authoritative launch) and the client (aim
+-- preview), so the preview arc matches what the server actually does.
 
-local HexGeometry = {}
+local Config = require(script.Parent.Config)
 
-local SQRT3 = math.sqrt(3)
+local Ballistics = {}
 
--- Local-space (X, Z) corners of a hexagon with circumradius `radius`.
-function HexGeometry.corners(radius: number): { Vector2 }
-	local out = {}
-	for i = 0, 5 do
-		local a = math.rad(60 * i)
-		table.insert(out, Vector2.new(math.cos(a) * radius, math.sin(a) * radius))
+-- Gravity felt by debris (see Config.DEBRIS_GRAVITY_SCALE).
+function Ballistics.debrisGravity(): number
+	return workspace.Gravity * Config.DEBRIS_GRAVITY_SCALE
+end
+
+-- Launch velocity of magnitude `speed` from `origin` that lands on `target`,
+-- preferring the flatter arc. Returns (velocity, reachable). When the target is
+-- out of range it aims toward it at Config.THROW_FALLBACK_PITCH.
+function Ballistics.solve(origin: Vector3, target: Vector3, speed: number): (Vector3, boolean)
+	local g = Ballistics.debrisGravity()
+	local delta = target - origin
+	local flat = Vector3.new(delta.X, 0, delta.Z)
+	local x = flat.Magnitude
+	if x < 0.05 then
+		local dir = if delta.Magnitude > 0.05 then delta.Unit else Vector3.yAxis
+		return dir * speed, true
 	end
-	return out
+	local y = delta.Y
+	local v2 = speed * speed
+	local disc = v2 * v2 - g * (g * x * x + 2 * y * v2)
+	local pitch
+	local reachable = true
+	if g <= 0 then
+		pitch = math.atan2(y, x)
+	elseif disc >= 0 then
+		pitch = math.atan((v2 - math.sqrt(disc)) / (g * x))
+	else
+		pitch = Config.THROW_FALLBACK_PITCH
+		reachable = false
+	end
+	return flat.Unit * (speed * math.cos(pitch)) + Vector3.yAxis * (speed * math.sin(pitch)), reachable
 end
 
-function HexGeometry.apothem(radius: number): number
-	return radius * SQRT3 / 2
+function Ballistics.positionAt(origin: Vector3, velocity: Vector3, t: number): Vector3
+	return origin + velocity * t - Vector3.yAxis * (0.5 * Ballistics.debrisGravity() * t * t)
 end
 
--- Is the local-space point (x, z) inside the hex?
-function HexGeometry.containsLocal(radius: number, x: number, z: number): boolean
-	local ax, az = math.abs(x), math.abs(z)
-	return az <= radius * SQRT3 / 2 and SQRT3 * ax + az <= SQRT3 * radius
-end
-
--- Is a world position over the hex whose center/orientation is `cf`?
--- Returns (inside, heightAboveCenter).
-function HexGeometry.containsWorld(cf: CFrame, radius: number, worldPos: Vector3): (boolean, number)
-	local p = cf:PointToObjectSpace(worldPos)
-	return HexGeometry.containsLocal(radius, p.X, p.Z), p.Y
-end
-
--- Uniform-ish random point inside the inscribed circle, scaled by `margin`.
-function HexGeometry.randomLocalPoint(radius: number, margin: number, rng: Random): Vector2
-	local r = HexGeometry.apothem(radius) * margin * math.sqrt(rng:NextNumber())
-	local a = rng:NextNumber() * math.pi * 2
-	return Vector2.new(math.cos(a) * r, math.sin(a) * r)
-end
-
-return HexGeometry
+return Ballistics
 ]=====])
-add("ReplicatedStorage", "ModuleScript", "DecahedronMesh", [=====[
+add("ReplicatedStorage.DebrisClear", "ModuleScript", "DecahedronMesh", [=====[
 --!strict
 -- Pentagonal trapezohedron (the d10 die shape) built with EditableMesh.
 --
@@ -307,55 +322,52 @@ end
 
 return DecahedronMesh
 ]=====])
-add("ReplicatedStorage", "ModuleScript", "Ballistics", [=====[
+add("ReplicatedStorage.DebrisClear", "ModuleScript", "HexGeometry", [=====[
 --!strict
--- Throw math shared by the server (authoritative launch) and the client (aim
--- preview), so the preview arc matches what the server actually does.
+-- Regular hexagon math. Hexes are "pointy along local X": vertex i sits at
+-- angle i * 60 degrees in the platform's local XZ plane.
 
-local Config = require(script.Parent.Config)
+local HexGeometry = {}
 
-local Ballistics = {}
+local SQRT3 = math.sqrt(3)
 
--- Gravity felt by debris (see Config.DEBRIS_GRAVITY_SCALE).
-function Ballistics.debrisGravity(): number
-	return workspace.Gravity * Config.DEBRIS_GRAVITY_SCALE
-end
-
--- Launch velocity of magnitude `speed` from `origin` that lands on `target`,
--- preferring the flatter arc. Returns (velocity, reachable). When the target is
--- out of range it aims toward it at Config.THROW_FALLBACK_PITCH.
-function Ballistics.solve(origin: Vector3, target: Vector3, speed: number): (Vector3, boolean)
-	local g = Ballistics.debrisGravity()
-	local delta = target - origin
-	local flat = Vector3.new(delta.X, 0, delta.Z)
-	local x = flat.Magnitude
-	if x < 0.05 then
-		local dir = if delta.Magnitude > 0.05 then delta.Unit else Vector3.yAxis
-		return dir * speed, true
+-- Local-space (X, Z) corners of a hexagon with circumradius `radius`.
+function HexGeometry.corners(radius: number): { Vector2 }
+	local out = {}
+	for i = 0, 5 do
+		local a = math.rad(60 * i)
+		table.insert(out, Vector2.new(math.cos(a) * radius, math.sin(a) * radius))
 	end
-	local y = delta.Y
-	local v2 = speed * speed
-	local disc = v2 * v2 - g * (g * x * x + 2 * y * v2)
-	local pitch
-	local reachable = true
-	if g <= 0 then
-		pitch = math.atan2(y, x)
-	elseif disc >= 0 then
-		pitch = math.atan((v2 - math.sqrt(disc)) / (g * x))
-	else
-		pitch = Config.THROW_FALLBACK_PITCH
-		reachable = false
-	end
-	return flat.Unit * (speed * math.cos(pitch)) + Vector3.yAxis * (speed * math.sin(pitch)), reachable
+	return out
 end
 
-function Ballistics.positionAt(origin: Vector3, velocity: Vector3, t: number): Vector3
-	return origin + velocity * t - Vector3.yAxis * (0.5 * Ballistics.debrisGravity() * t * t)
+function HexGeometry.apothem(radius: number): number
+	return radius * SQRT3 / 2
 end
 
-return Ballistics
+-- Is the local-space point (x, z) inside the hex?
+function HexGeometry.containsLocal(radius: number, x: number, z: number): boolean
+	local ax, az = math.abs(x), math.abs(z)
+	return az <= radius * SQRT3 / 2 and SQRT3 * ax + az <= SQRT3 * radius
+end
+
+-- Is a world position over the hex whose center/orientation is `cf`?
+-- Returns (inside, heightAboveCenter).
+function HexGeometry.containsWorld(cf: CFrame, radius: number, worldPos: Vector3): (boolean, number)
+	local p = cf:PointToObjectSpace(worldPos)
+	return HexGeometry.containsLocal(radius, p.X, p.Z), p.Y
+end
+
+-- Uniform-ish random point inside the inscribed circle, scaled by `margin`.
+function HexGeometry.randomLocalPoint(radius: number, margin: number, rng: Random): Vector2
+	local r = HexGeometry.apothem(radius) * margin * math.sqrt(rng:NextNumber())
+	local a = rng:NextNumber() * math.pi * 2
+	return Vector2.new(math.cos(a) * r, math.sin(a) * r)
+end
+
+return HexGeometry
 ]=====])
-add("ReplicatedStorage", "ModuleScript", "Remotes", [=====[
+add("ReplicatedStorage.DebrisClear", "ModuleScript", "Remotes", [=====[
 --!strict
 -- Single place that defines every RemoteEvent. The server creates them; clients
 -- wait for them.
@@ -396,10 +408,11 @@ end
 
 return Remotes
 ]=====])
-add("ServerScriptService", "Script", "Main", [=====[
+add("ServerScriptService.DebrisClear", "Script", "Main", [=====[
 --!strict
 -- Debris Clear server entry point and round loop.
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -408,6 +421,7 @@ local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
 local Remotes = require(Shared.Remotes)
 local Arena = require(script.Parent.Arena)
+local MapKit = require(script.Parent.Map.MapKit)
 local LoadService = require(script.Parent.LoadService)
 local DebrisService = require(script.Parent.DebrisService)
 local ThrowService = require(script.Parent.ThrowService)
@@ -500,9 +514,50 @@ RunService.Heartbeat:Connect(function()
 			humanoid.Health = 0
 		elseif not competing and position.Y < rescueY and not Arena.inArenaColumn(position) then
 			root.AssemblyLinearVelocity = Vector3.zero
-			character:PivotTo(Arena.hubReturnCFrame())
+			character:PivotTo(Arena.nearestSafeCFrame(position))
 		end
 	end
+end)
+
+---------------------------------------------------------------------------
+-- Teleport pads (hub <-> showcase). Spectators only; competitors stay put.
+---------------------------------------------------------------------------
+local lastTeleport: { [Player]: number } = {}
+
+local function bindTeleportPad(pad: Instance)
+	if not pad:IsA("BasePart") then
+		return
+	end
+	pad.Touched:Connect(function(hit)
+		local character = hit:FindFirstAncestorOfClass("Model")
+		local player = character and Players:GetPlayerFromCharacter(character)
+		if not player or not character then
+			return
+		end
+		if roundActive and LoadService.isAlive(player) then
+			return
+		end
+		local now = os.clock()
+		if now - (lastTeleport[player] or 0) < Config.TELEPORT_COOLDOWN then
+			return
+		end
+		local destination = Arena.destinationCFrame(tostring(pad:GetAttribute("Destination")))
+		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not destination or not root then
+			return
+		end
+		lastTeleport[player] = now
+		root.AssemblyLinearVelocity = Vector3.zero
+		character:PivotTo(destination)
+	end)
+end
+
+CollectionService:GetInstanceAddedSignal(MapKit.TELEPORT_TAG):Connect(bindTeleportPad)
+for _, pad in CollectionService:GetTagged(MapKit.TELEPORT_TAG) do
+	bindTeleportPad(pad)
+end
+Players.PlayerRemoving:Connect(function(player)
+	lastTeleport[player] = nil
 end)
 
 ---------------------------------------------------------------------------
@@ -615,10 +670,11 @@ while true do
 	end
 end
 ]=====])
-add("ServerScriptService", "ModuleScript", "Arena", [=====[
+add("ServerScriptService.DebrisClear", "ModuleScript", "Arena", [=====[
 --!strict
 -- Builds the arena: 4 hexagonal platforms on piston rods around a central pit,
--- a ring-meter SurfaceGui on each deck, and a raised spawn hub overlooking it all.
+-- with a ring-meter SurfaceGui on each deck. The surroundings (pit, towers,
+-- spawn hub, showcase, lighting) are built by the modules in Map/.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -627,6 +683,13 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
 local HexGeometry = require(Shared.HexGeometry)
+local Map = script.Parent.Map
+local Pit = require(Map.Pit)
+local Towers = require(Map.Towers)
+local Hub = require(Map.Hub)
+local Showcase = require(Map.Showcase)
+local MapLighting = require(Map.Lighting)
+local PlatformDressing = require(Map.PlatformDressing)
 
 local Arena = {}
 
@@ -643,6 +706,7 @@ Arena.folder = nil :: Folder?
 Arena.hubSpawn = nil :: SpawnLocation?
 Arena.hubFloorY = 0
 Arena.boardStatus = nil :: TextLabel?
+Arena.showcaseSpawnCFrame = nil :: CFrame?
 
 local PLATFORM_TAG = "DebrisClearPlatform"
 
@@ -871,6 +935,10 @@ local function buildPlatform(slot: number, parent: Instance): Platform
 	rod.CFrame = topCFrame * CFrame.new(0, -Config.PLATFORM_THICKNESS - rodLength / 2, 0) * CFrame.Angles(0, 0, math.rad(90))
 	rod.Parent = model
 
+	-- Visual dressing (rim, lights, slot number). Added before restPivots is
+	-- collected so it rides the piston drop with the deck.
+	PlatformDressing.dress(model, topCFrame, color, slot)
+
 	buildRingMeter(topCFrame, model)
 
 	model:SetAttribute("Slot", slot)
@@ -897,127 +965,9 @@ local function buildPlatform(slot: number, parent: Instance): Platform
 	}
 end
 
-local function buildPit(parent: Instance)
-	local c = Config.ARENA_CENTER
-	local floor = anchoredPart("Part", {
-		Name = "PitFloor",
-		Size = Vector3.new(4 * Config.ARENA_RADIUS + 60, 2, 4 * Config.ARENA_RADIUS + 60),
-		Color = Color3.fromRGB(25, 20, 20),
-		Material = Enum.Material.CorrodedMetal,
-	})
-	floor.CFrame = CFrame.new(c.X, c.Y - Config.PIT_DEPTH - 1, c.Z)
-	floor.Parent = parent
-
-	local glow = anchoredPart("Part", {
-		Name = "PitGlow",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(0.2, Config.ARENA_RADIUS * 1.2, Config.ARENA_RADIUS * 1.2),
-		Color = Color3.fromRGB(255, 90, 30),
-		Material = Enum.Material.Neon,
-		CanCollide = false,
-		CanQuery = false,
-	})
-	glow.CFrame = CFrame.new(c.X, c.Y - Config.PIT_DEPTH + 0.1, c.Z) * CFrame.Angles(0, 0, math.rad(90))
-	glow.Parent = parent
-
-end
-
--- Raised overlook hub facing the pit: the only enabled SpawnLocation, well
--- outside the arena kill column, with a glass front rail and a status board.
-local function buildHub(parent: Instance)
-	local c = Config.ARENA_CENTER
-	local top = c + Config.HUB_OFFSET
-	-- -Z faces the arena, so "front" is the edge overlooking the pit.
-	local hubCFrame = CFrame.lookAt(top, Vector3.new(c.X, top.Y, c.Z))
-	local W, D, H = Config.HUB_SIZE.X, Config.HUB_SIZE.Z, Config.HUB_RAIL_HEIGHT
-
-	local model = Instance.new("Model")
-	model.Name = "SpawnHub"
-
-	local floor = anchoredPart("Part", {
-		Name = "HubFloor",
-		Size = Config.HUB_SIZE,
-		Color = Color3.fromRGB(58, 60, 68),
-		Material = Enum.Material.Concrete,
-	})
-	floor.CFrame = hubCFrame * CFrame.new(0, -Config.HUB_SIZE.Y / 2, 0)
-	floor.Parent = model
-
-	local function rail(name: string, size: Vector3, offset: CFrame, glass: boolean)
-		local part = anchoredPart("Part", {
-			Name = name,
-			Size = size,
-			Color = if glass then Color3.fromRGB(170, 210, 255) else Color3.fromRGB(80, 82, 92),
-			Material = if glass then Enum.Material.Glass else Enum.Material.Metal,
-			Transparency = if glass then 0.7 else 0,
-		})
-		part.CFrame = hubCFrame * offset
-		part.Parent = model
-		return part
-	end
-	rail("FrontRail", Vector3.new(W, H, 0.5), CFrame.new(0, H / 2, -D / 2 + 0.25), true)
-	rail("LeftRail", Vector3.new(0.5, H, D), CFrame.new(-W / 2 + 0.25, H / 2, 0), false)
-	rail("RightRail", Vector3.new(0.5, H, D), CFrame.new(W / 2 - 0.25, H / 2, 0), false)
-
-	-- Neon trim along the overlook edge.
-	local trim = anchoredPart("Part", {
-		Name = "EdgeTrim",
-		Size = Vector3.new(W, 0.3, 0.6),
-		Color = Color3.fromRGB(255, 120, 40),
-		Material = Enum.Material.Neon,
-		CanCollide = false,
-	})
-	trim.CFrame = hubCFrame * CFrame.new(0, H + 0.15, -D / 2 + 0.25)
-	trim.Parent = model
-
-	-- Back wall doubles as a scoreboard, readable from the hub and the platforms.
-	local boardHeight = 16
-	local board = anchoredPart("Part", {
-		Name = "StatusBoard",
-		Size = Vector3.new(W, boardHeight, 1),
-		Color = Color3.fromRGB(28, 28, 34),
-		Material = Enum.Material.SmoothPlastic,
-	})
-	board.CFrame = hubCFrame * CFrame.new(0, boardHeight / 2, D / 2 - 0.5)
-	board.Parent = model
-	local boardGui = Instance.new("SurfaceGui")
-	boardGui.Name = "Board"
-	boardGui.Face = Enum.NormalId.Front
-	boardGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	boardGui.PixelsPerStud = 20
-	boardGui.LightInfluence = 0
-	boardGui.Parent = board
-	local title = Instance.new("TextLabel")
-	title.Name = "Title"
-	title.BackgroundTransparency = 1
-	title.Size = UDim2.fromScale(1, 0.45)
-	title.Font = Enum.Font.GothamBlack
-	title.TextScaled = true
-	title.TextColor3 = Color3.fromRGB(255, 140, 50)
-	title.Text = "DEBRIS CLEAR"
-	title.Parent = boardGui
-	local statusText = title:Clone()
-	statusText.Name = "Status"
-	statusText.Position = UDim2.fromScale(0.05, 0.5)
-	statusText.Size = UDim2.fromScale(0.9, 0.35)
-	statusText.Font = Enum.Font.GothamBold
-	statusText.TextColor3 = Color3.new(1, 1, 1)
-	statusText.Text = ""
-	statusText.Parent = boardGui
-	Arena.boardStatus = statusText
-
-	-- Support pillars down to the ground, purely visual.
-	for _, x in { -W / 3, W / 3 } do
-		local pillarHeight = top.Y
-		local pillar = anchoredPart("Part", {
-			Name = "Pillar",
-			Size = Vector3.new(4, pillarHeight, 4),
-			Color = Color3.fromRGB(70, 70, 78),
-			Material = Enum.Material.Metal,
-		})
-		pillar.CFrame = hubCFrame * CFrame.new(x, -Config.HUB_SIZE.Y - pillarHeight / 2, 0)
-		pillar.Parent = model
-	end
+function Arena.build()
+	local folder = Instance.new("Folder")
+	folder.Name = "DebrisClearArena"
 
 	-- Ours is the only enabled spawn, so nobody spawns inside the pit.
 	for _, d in workspace:GetDescendants() do
@@ -1025,28 +975,19 @@ local function buildHub(parent: Instance)
 			d.Enabled = false
 		end
 	end
-	local spawn = Instance.new("SpawnLocation")
-	spawn.Name = "HubSpawn"
-	spawn.Anchored = true
-	spawn.Neutral = true
-	spawn.Duration = 0
-	spawn.Size = Vector3.new(10, 1, 10)
-	spawn.Color = Color3.fromRGB(255, 140, 50)
-	spawn.Material = Enum.Material.SmoothPlastic
-	-- Facing the arena, so players spawn looking out over the pit.
-	spawn.CFrame = hubCFrame * CFrame.new(0, 0.5, D / 4)
-	spawn.Parent = model
 
-	model.Parent = parent
-	Arena.hubSpawn = spawn
-	Arena.hubFloorY = top.Y
-end
+	MapLighting.apply()
+	Pit.build(folder)
+	Towers.build(folder)
 
-function Arena.build()
-	local folder = Instance.new("Folder")
-	folder.Name = "DebrisClearArena"
-	buildPit(folder)
-	buildHub(folder)
+	local hub = Hub.build(folder)
+	Arena.hubSpawn = hub.spawn
+	Arena.boardStatus = hub.statusLabel
+	Arena.hubFloorY = hub.floorY
+
+	local showcase = Showcase.build(folder)
+	Arena.showcaseSpawnCFrame = showcase.spawnCFrame
+
 	for slot = 1, Config.MAX_PLAYERS do
 		table.insert(Arena.platforms, buildPlatform(slot, folder))
 	end
@@ -1076,6 +1017,31 @@ end
 function Arena.hubReturnCFrame(): CFrame
 	local spawn = Arena.hubSpawn :: SpawnLocation
 	return spawn.CFrame * CFrame.new(0, 3.5, 0)
+end
+
+-- Teleport pad destinations, by the pad's "Destination" attribute.
+function Arena.destinationCFrame(name: string): CFrame?
+	if name == "Hub" then
+		return Arena.hubReturnCFrame()
+	elseif name == "Showcase" then
+		return Arena.showcaseSpawnCFrame
+	end
+	return nil
+end
+
+-- Closest safe spot (hub or showcase) to put a fallen spectator back on.
+function Arena.nearestSafeCFrame(position: Vector3): CFrame
+	local best = Arena.hubReturnCFrame()
+	local showcase = Arena.showcaseSpawnCFrame
+	if showcase then
+		local function flatDistance(cf: CFrame): number
+			return (Vector3.new(cf.X, 0, cf.Z) - Vector3.new(position.X, 0, position.Z)).Magnitude
+		end
+		if flatDistance(showcase) < flatDistance(best) then
+			best = showcase
+		end
+	end
+	return best
 end
 
 function Arena.setBoardStatus(text: string)
@@ -1129,135 +1095,7 @@ end
 
 return Arena
 ]=====])
-add("ServerScriptService", "ModuleScript", "LoadService", [=====[
---!strict
--- Authoritative per-platform load tracking and elimination.
---
--- platformLoads[player] is the source of truth. It is mirrored onto the
--- platform model's "Load" attribute purely so clients can draw the ring.
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
-local Config = require(Shared.Config)
-local Arena = require(script.Parent.Arena)
-
-type Platform = Arena.Platform
-type EliminatedListener = (player: Player, platform: Platform, reason: string) -> ()
-
-local LoadService = {}
-
-LoadService.platformLoads = {} :: { [Player]: number }
-local platformOf: { [Player]: Platform } = {}
-local ownerOf: { [Platform]: Player } = {}
-local alive: { [Player]: boolean } = {}
-local listeners: { EliminatedListener } = {}
-
-function LoadService.onEliminated(listener: EliminatedListener)
-	table.insert(listeners, listener)
-end
-
-function LoadService.startRound(assignments: { [Player]: Platform })
-	LoadService.reset()
-	for player, platform in assignments do
-		platformOf[player] = platform
-		ownerOf[platform] = player
-		alive[player] = true
-		LoadService.platformLoads[player] = 0
-		platform.model:SetAttribute("Load", 0)
-		platform.model:SetAttribute("OwnerName", player.DisplayName)
-		platform.model:SetAttribute("Eliminated", false)
-	end
-end
-
-function LoadService.reset()
-	table.clear(LoadService.platformLoads)
-	table.clear(platformOf)
-	table.clear(ownerOf)
-	table.clear(alive)
-end
-
-function LoadService.isAlive(player: Player): boolean
-	return alive[player] == true
-end
-
-function LoadService.aliveCount(): number
-	local n = 0
-	for _, isAlive in alive do
-		if isAlive then
-			n += 1
-		end
-	end
-	return n
-end
-
-function LoadService.alivePlayers(): { Player }
-	local out = {}
-	for player, isAlive in alive do
-		if isAlive then
-			table.insert(out, player)
-		end
-	end
-	return out
-end
-
-function LoadService.platformOf(player: Player): Platform?
-	return platformOf[player]
-end
-
-function LoadService.ownerOf(platform: Platform): Player?
-	return ownerOf[platform]
-end
-
--- A platform accepts load only while its owner is still in the round.
-function LoadService.isActive(platform: Platform): boolean
-	local owner: Player? = ownerOf[platform]
-	return owner ~= nil and alive[owner] == true
-end
-
-function LoadService.addLoad(platform: Platform, delta: number)
-	local owner = ownerOf[platform]
-	if not owner or not alive[owner] then
-		return
-	end
-	local load = math.max(0, (LoadService.platformLoads[owner] or 0) + delta)
-	LoadService.platformLoads[owner] = load
-	platform.model:SetAttribute("Load", load)
-	if load >= Config.PLATFORM_CAPACITY then
-		LoadService.eliminate(owner, "Overloaded")
-	end
-end
-
--- Idempotent. Marks the player out immediately, then runs the piston drop and
--- crush without blocking the caller.
-function LoadService.eliminate(player: Player, reason: string)
-	if not alive[player] then
-		return
-	end
-	alive[player] = false
-	local platform = platformOf[player]
-	if not platform then
-		return
-	end
-	platform.model:SetAttribute("Eliminated", true)
-
-	task.spawn(function()
-		Arena.dropPlatform(platform)
-		-- Crushed along with their own debris, Machine Party style.
-		local character = player.Character
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-		if humanoid and humanoid.Health > 0 then
-			humanoid.Health = 0
-		end
-		for _, listener in listeners do
-			task.spawn(listener, player, platform, reason)
-		end
-	end)
-end
-
-return LoadService
-]=====])
-add("ServerScriptService", "ModuleScript", "DebrisService", [=====[
+add("ServerScriptService.DebrisClear", "ModuleScript", "DebrisService", [=====[
 --!strict
 -- Spawns d10 debris over each live platform, owns their physics, and decides
 -- which platform (if any) each piece has landed on.
@@ -1575,7 +1413,175 @@ end
 
 return DebrisService
 ]=====])
-add("ServerScriptService", "ModuleScript", "ThrowService", [=====[
+add("ServerScriptService.DebrisClear", "ModuleScript", "LoadService", [=====[
+--!strict
+-- Authoritative per-platform load tracking and elimination.
+--
+-- platformLoads[player] is the source of truth. It is mirrored onto the
+-- platform model's "Load" attribute purely so clients can draw the ring.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
+local Config = require(Shared.Config)
+local Arena = require(script.Parent.Arena)
+
+type Platform = Arena.Platform
+type EliminatedListener = (player: Player, platform: Platform, reason: string) -> ()
+
+local LoadService = {}
+
+LoadService.platformLoads = {} :: { [Player]: number }
+local platformOf: { [Player]: Platform } = {}
+local ownerOf: { [Platform]: Player } = {}
+local alive: { [Player]: boolean } = {}
+local listeners: { EliminatedListener } = {}
+
+function LoadService.onEliminated(listener: EliminatedListener)
+	table.insert(listeners, listener)
+end
+
+function LoadService.startRound(assignments: { [Player]: Platform })
+	LoadService.reset()
+	for player, platform in assignments do
+		platformOf[player] = platform
+		ownerOf[platform] = player
+		alive[player] = true
+		LoadService.platformLoads[player] = 0
+		platform.model:SetAttribute("Load", 0)
+		platform.model:SetAttribute("OwnerName", player.DisplayName)
+		platform.model:SetAttribute("Eliminated", false)
+	end
+end
+
+function LoadService.reset()
+	table.clear(LoadService.platformLoads)
+	table.clear(platformOf)
+	table.clear(ownerOf)
+	table.clear(alive)
+end
+
+function LoadService.isAlive(player: Player): boolean
+	return alive[player] == true
+end
+
+function LoadService.aliveCount(): number
+	local n = 0
+	for _, isAlive in alive do
+		if isAlive then
+			n += 1
+		end
+	end
+	return n
+end
+
+function LoadService.alivePlayers(): { Player }
+	local out = {}
+	for player, isAlive in alive do
+		if isAlive then
+			table.insert(out, player)
+		end
+	end
+	return out
+end
+
+function LoadService.platformOf(player: Player): Platform?
+	return platformOf[player]
+end
+
+function LoadService.ownerOf(platform: Platform): Player?
+	return ownerOf[platform]
+end
+
+-- A platform accepts load only while its owner is still in the round.
+function LoadService.isActive(platform: Platform): boolean
+	local owner: Player? = ownerOf[platform]
+	return owner ~= nil and alive[owner] == true
+end
+
+function LoadService.addLoad(platform: Platform, delta: number)
+	local owner = ownerOf[platform]
+	if not owner or not alive[owner] then
+		return
+	end
+	local load = math.max(0, (LoadService.platformLoads[owner] or 0) + delta)
+	LoadService.platformLoads[owner] = load
+	platform.model:SetAttribute("Load", load)
+	if load >= Config.PLATFORM_CAPACITY then
+		LoadService.eliminate(owner, "Overloaded")
+	end
+end
+
+-- Idempotent. Marks the player out immediately, then runs the piston drop and
+-- crush without blocking the caller.
+function LoadService.eliminate(player: Player, reason: string)
+	if not alive[player] then
+		return
+	end
+	alive[player] = false
+	local platform = platformOf[player]
+	if not platform then
+		return
+	end
+	platform.model:SetAttribute("Eliminated", true)
+
+	task.spawn(function()
+		Arena.dropPlatform(platform)
+		-- Crushed along with their own debris, Machine Party style.
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if humanoid and humanoid.Health > 0 then
+			humanoid.Health = 0
+		end
+		for _, listener in listeners do
+			task.spawn(listener, player, platform, reason)
+		end
+	end)
+end
+
+return LoadService
+]=====])
+add("ServerScriptService.DebrisClear", "ModuleScript", "RateLimiter", [=====[
+--!strict
+-- Per-player token bucket for remote traffic.
+
+local RateLimiter = {}
+RateLimiter.__index = RateLimiter
+
+type Bucket = { tokens: number, stamp: number }
+
+export type RateLimiter = typeof(setmetatable(
+	{} :: { rate: number, buckets: { [Player]: Bucket } },
+	RateLimiter
+))
+
+function RateLimiter.new(perSecond: number): RateLimiter
+	return setmetatable({ rate = perSecond, buckets = {} }, RateLimiter)
+end
+
+function RateLimiter.allow(self: RateLimiter, player: Player): boolean
+	local now = os.clock()
+	local bucket = self.buckets[player]
+	if not bucket then
+		bucket = { tokens = self.rate, stamp = now }
+		self.buckets[player] = bucket
+	end
+	bucket.tokens = math.min(self.rate, bucket.tokens + (now - bucket.stamp) * self.rate)
+	bucket.stamp = now
+	if bucket.tokens < 1 then
+		return false
+	end
+	bucket.tokens -= 1
+	return true
+end
+
+function RateLimiter.forget(self: RateLimiter, player: Player)
+	self.buckets[player] = nil
+end
+
+return RateLimiter
+]=====])
+add("ServerScriptService.DebrisClear", "ModuleScript", "ThrowService", [=====[
 --!strict
 -- Pickup (ProximityPrompt) and throw (RemoteEvent). The client only sends an
 -- aim point. Everything else (who holds what, where it launches from, how
@@ -1796,47 +1802,460 @@ end
 
 return ThrowService
 ]=====])
-add("ServerScriptService", "ModuleScript", "RateLimiter", [=====[
+add("ServerScriptService.DebrisClear.Map", "ModuleScript", "Hub", [=====[
 --!strict
--- Per-player token bucket for remote traffic.
+-- Raised spawn hub overlooking the pit. Interim version (ported from Arena).
+-- Contract: returns the SpawnLocation, the status TextLabel (or nil) and the
+-- hub floor's top Y. Must include a teleport pad to the showcase.
 
-local RateLimiter = {}
-RateLimiter.__index = RateLimiter
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-type Bucket = { tokens: number, stamp: number }
+local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
+local Config = require(Shared.Config)
+local MapKit = require(script.Parent.MapKit)
 
-export type RateLimiter = typeof(setmetatable(
-	{} :: { rate: number, buckets: { [Player]: Bucket } },
-	RateLimiter
-))
+local Hub = {}
 
-function RateLimiter.new(perSecond: number): RateLimiter
-	return setmetatable({ rate = perSecond, buckets = {} }, RateLimiter)
-end
+export type Result = {
+	spawn: SpawnLocation,
+	statusLabel: TextLabel?,
+	floorY: number,
+}
 
-function RateLimiter.allow(self: RateLimiter, player: Player): boolean
-	local now = os.clock()
-	local bucket = self.buckets[player]
-	if not bucket then
-		bucket = { tokens = self.rate, stamp = now }
-		self.buckets[player] = bucket
+function Hub.build(parent: Instance): Result
+	local c = Config.ARENA_CENTER
+	local top = c + Config.HUB_OFFSET
+	-- -Z faces the arena, so "front" is the edge overlooking the pit.
+	local hubCFrame = CFrame.lookAt(top, Vector3.new(c.X, top.Y, c.Z))
+	local W, D, H = Config.HUB_SIZE.X, Config.HUB_SIZE.Z, Config.HUB_RAIL_HEIGHT
+
+	local model = MapKit.model("SpawnHub")
+
+	MapKit.block(hubCFrame * CFrame.new(0, -Config.HUB_SIZE.Y / 2, 0), Config.HUB_SIZE, {
+		Name = "HubFloor",
+		Color = Color3.fromRGB(58, 60, 68),
+		Material = Enum.Material.Concrete,
+	}).Parent = model
+
+	MapKit.block(hubCFrame * CFrame.new(0, H / 2, -D / 2 + 0.25), Vector3.new(W, H, 0.5), {
+		Name = "FrontRail",
+		Color = Color3.fromRGB(170, 210, 255),
+		Material = Enum.Material.Glass,
+		Transparency = 0.7,
+	}).Parent = model
+	for _, x in { -W / 2 + 0.25, W / 2 - 0.25 } do
+		MapKit.block(hubCFrame * CFrame.new(x, H / 2, 0), Vector3.new(0.5, H, D), {
+			Name = "SideRail",
+			Color = Color3.fromRGB(80, 82, 92),
+			Material = Enum.Material.Metal,
+		}).Parent = model
 	end
-	bucket.tokens = math.min(self.rate, bucket.tokens + (now - bucket.stamp) * self.rate)
-	bucket.stamp = now
-	if bucket.tokens < 1 then
-		return false
-	end
-	bucket.tokens -= 1
-	return true
+
+	local boardHeight = 16
+	local board = MapKit.block(hubCFrame * CFrame.new(0, boardHeight / 2, D / 2 - 0.5), Vector3.new(W, boardHeight, 1), {
+		Name = "StatusBoard",
+		Color = Color3.fromRGB(28, 28, 34),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	board.Parent = model
+	local _, title = MapKit.surfaceText(board, Enum.NormalId.Front, "DEBRIS CLEAR", {
+		Size = UDim2.fromScale(1, 0.45),
+		Position = UDim2.fromScale(0, 0),
+		TextColor3 = Color3.fromRGB(255, 140, 50),
+	})
+	local statusLabel = title:Clone()
+	statusLabel.Name = "Status"
+	statusLabel.Position = UDim2.fromScale(0.05, 0.5)
+	statusLabel.Size = UDim2.fromScale(0.9, 0.35)
+	statusLabel.Font = Enum.Font.GothamBold
+	statusLabel.TextColor3 = Color3.new(1, 1, 1)
+	statusLabel.Text = ""
+	statusLabel.Parent = title.Parent
+
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name = "HubSpawn"
+	spawn.Anchored = true
+	spawn.Neutral = true
+	spawn.Duration = 0
+	spawn.Size = Vector3.new(10, 1, 10)
+	spawn.Color = Color3.fromRGB(255, 140, 50)
+	spawn.Material = Enum.Material.SmoothPlastic
+	spawn.CFrame = hubCFrame * CFrame.new(0, 0.5, D / 4)
+	spawn.Parent = model
+
+	MapKit.teleportPad(model, hubCFrame * CFrame.new(W / 2 - 8, 0.3, D / 4), "SHOWCASE", "Showcase", Color3.fromRGB(90, 200, 255))
+
+	model.Parent = parent
+	return { spawn = spawn, statusLabel = statusLabel, floorY = top.Y }
 end
 
-function RateLimiter.forget(self: RateLimiter, player: Player)
-	self.buckets[player] = nil
-end
-
-return RateLimiter
+return Hub
 ]=====])
-add("StarterPlayer.StarterPlayerScripts", "LocalScript", "Main", [=====[
+add("ServerScriptService.DebrisClear.Map", "ModuleScript", "Lighting", [=====[
+--!strict
+-- Sky, atmosphere and post-processing. Interim: leave Studio defaults.
+
+local Lighting = {}
+
+function Lighting.apply() end
+
+return Lighting
+]=====])
+add("ServerScriptService.DebrisClear.Map", "ModuleScript", "MapKit", [=====[
+--!strict
+-- Shared helpers for the map modules (Pit, Towers, Hub, Showcase, ...).
+-- Everything here makes anchored primitive parts; no asset ids anywhere.
+
+local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
+local Config = require(Shared.Config)
+local DecahedronMesh = require(Shared.DecahedronMesh)
+
+local MapKit = {}
+
+-- Teleport pads carry this tag and a "Destination" attribute ("Hub" | "Showcase").
+MapKit.TELEPORT_TAG = "DebrisClearTeleport"
+-- Parts with this tag and attribute Visual = "Client" get a locally rendered d10.
+MapKit.DEBRIS_TAG = "DebrisClearDebris"
+
+export type Props = { [string]: any }
+
+local function apply(instance: Instance, props: Props?)
+	if props then
+		for k, v in props do
+			(instance :: any)[k] = v
+		end
+	end
+end
+
+-- Anchored, smooth-surfaced Part. Shape/Size/CFrame/Color/etc. come from props.
+function MapKit.part(props: Props?): Part
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.CastShadow = true
+	apply(part, props)
+	return part
+end
+
+function MapKit.wedge(props: Props?): WedgePart
+	local part = Instance.new("WedgePart")
+	part.Anchored = true
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	apply(part, props)
+	return part
+end
+
+function MapKit.cornerWedge(props: Props?): CornerWedgePart
+	local part = Instance.new("CornerWedgePart")
+	part.Anchored = true
+	apply(part, props)
+	return part
+end
+
+function MapKit.truss(props: Props?): TrussPart
+	local part = Instance.new("TrussPart")
+	part.Anchored = true
+	apply(part, props)
+	return part
+end
+
+-- Block with its CENTER at `cf`.
+function MapKit.block(cf: CFrame, size: Vector3, props: Props?): Part
+	local part = MapKit.part(props)
+	part.Size = size
+	part.CFrame = cf
+	return part
+end
+
+-- Cylinder whose axis runs along the local Y of `cf`, centered on `cf`.
+-- (Roblox cylinders run along their X axis; this hides that.)
+function MapKit.cylinder(cf: CFrame, length: number, radius: number, props: Props?): Part
+	local part = MapKit.part(props)
+	part.Shape = Enum.PartType.Cylinder
+	part.Size = Vector3.new(length, radius * 2, radius * 2)
+	part.CFrame = cf * CFrame.Angles(0, 0, math.rad(90))
+	return part
+end
+
+-- Flat disc lying in the XZ plane of `cf` (top face points along local +Y).
+function MapKit.disc(cf: CFrame, radius: number, thickness: number, props: Props?): Part
+	return MapKit.cylinder(cf, thickness, radius, props)
+end
+
+-- Cylinder standing on `base` (world position), growing straight up.
+function MapKit.column(base: Vector3, height: number, radius: number, props: Props?): Part
+	return MapKit.cylinder(CFrame.new(base + Vector3.new(0, height / 2, 0)), height, radius, props)
+end
+
+function MapKit.ball(position: Vector3, diameter: number, props: Props?): Part
+	local part = MapKit.part(props)
+	part.Shape = Enum.PartType.Ball
+	part.Size = Vector3.one * diameter
+	part.CFrame = CFrame.new(position)
+	return part
+end
+
+-- Calls fn(i, cf) for `count` evenly spaced points on a horizontal circle.
+-- Each cf sits on the circle, at `center`'s height, with -Z facing the center.
+function MapKit.ring(center: Vector3, radius: number, count: number, startAngle: number, fn: (i: number, cf: CFrame) -> ())
+	for i = 1, count do
+		local a = startAngle + (i - 1) * (2 * math.pi / count)
+		local p = center + Vector3.new(math.cos(a), 0, math.sin(a)) * radius
+		fn(i, CFrame.lookAt(p, Vector3.new(center.X, p.Y, center.Z)))
+	end
+end
+
+-- Straight beam of parts between two world points (for girders, rails, cables).
+function MapKit.beam(a: Vector3, b: Vector3, thickness: number, props: Props?): Part
+	local length = (b - a).Magnitude
+	local part = MapKit.part(props)
+	part.Size = Vector3.new(thickness, thickness, length)
+	part.CFrame = CFrame.lookAt((a + b) / 2, b)
+	return part
+end
+
+function MapKit.model(name: string, parent: Instance?): Model
+	local model = Instance.new("Model")
+	model.Name = name
+	if parent then
+		model.Parent = parent
+	end
+	return model
+end
+
+-- Text on one face of a part. Returns the gui and label for later edits.
+function MapKit.surfaceText(part: BasePart, face: Enum.NormalId, text: string, props: Props?): (SurfaceGui, TextLabel)
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = "Text"
+	gui.Face = face
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 20
+	gui.LightInfluence = 0
+	gui.Brightness = 1.2
+	gui.Parent = part
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromScale(0.9, 0.8)
+	label.Position = UDim2.fromScale(0.05, 0.1)
+	label.Font = Enum.Font.GothamBlack
+	label.TextScaled = true
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextStrokeTransparency = 0.6
+	label.Text = text
+	apply(label, props)
+	label.Parent = gui
+	return gui, label
+end
+
+function MapKit.pointLight(part: BasePart, color: Color3, brightness: number, range: number): PointLight
+	local light = Instance.new("PointLight")
+	light.Color = color
+	light.Brightness = brightness
+	light.Range = range
+	light.Shadows = false
+	light.Parent = part
+	return light
+end
+
+function MapKit.emitter(part: BasePart, props: Props?): ParticleEmitter
+	local emitter = Instance.new("ParticleEmitter")
+	apply(emitter, props)
+	emitter.Parent = part
+	return emitter
+end
+
+-- Glowing floor pad that teleports whoever steps on it (handled in Main).
+-- `destination` is "Hub" or "Showcase".
+function MapKit.teleportPad(parent: Instance, cf: CFrame, label: string, destination: string, color: Color3): Part
+	local pad = MapKit.part({
+		Name = `TeleportPad_{destination}`,
+		Size = Vector3.new(8, 0.6, 8),
+		Color = color,
+		Material = Enum.Material.Neon,
+		CanQuery = false,
+	})
+	pad.CFrame = cf
+	pad:SetAttribute("Destination", destination)
+	CollectionService:AddTag(pad, MapKit.TELEPORT_TAG)
+
+	local base = MapKit.part({
+		Name = "PadBase",
+		Size = Vector3.new(9.5, 0.4, 9.5),
+		Color = Color3.fromRGB(35, 35, 42),
+		Material = Enum.Material.Metal,
+		CanCollide = false,
+		CanQuery = false,
+	})
+	base.CFrame = cf * CFrame.new(0, -0.45, 0)
+	base.Parent = pad
+
+	local _, text = MapKit.surfaceText(pad, Enum.NormalId.Top, label)
+	text.TextColor3 = Color3.new(0.1, 0.1, 0.12)
+	text.TextStrokeTransparency = 1
+
+	local light = MapKit.pointLight(pad, color, 2, 14)
+	light.Parent = pad
+	pad.Parent = parent
+	return pad
+end
+
+-- A display d10 for the showcase (no physics). With an imported mesh it is a
+-- real MeshPart; otherwise clients render the EditableMesh d10 over an
+-- invisible anchor, exactly like live debris.
+function MapKit.showcaseDebris(parent: Instance, cf: CFrame, scale: number?): BasePart
+	local size = Config.DEBRIS_SIZE * (scale or 1)
+	local part: BasePart? = nil
+	if Config.DEBRIS_MESH_ID ~= "" then
+		part = DecahedronMesh.createFromAsset(Config.DEBRIS_MESH_ID, size)
+	end
+	if part then
+		part.Color = Config.DEBRIS_COLOR
+		part.Material = Config.DEBRIS_MATERIAL
+	else
+		local anchor = MapKit.part({ Transparency = 1, Size = Vector3.one * size })
+		anchor:SetAttribute("Visual", "Client")
+		CollectionService:AddTag(anchor, MapKit.DEBRIS_TAG)
+		part = anchor
+	end
+	local p = part :: BasePart
+	p.Name = "ShowcaseDebris"
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CFrame = cf
+	p.Parent = parent
+	return p
+end
+
+-- Slowly spins an anchored part in place around world Y (display pieces).
+function MapKit.spin(part: BasePart, degreesPerSecond: number)
+	local origin = part.CFrame
+	local angle = 0
+	RunService.Heartbeat:Connect(function(dt)
+		if not part.Parent then
+			return
+		end
+		angle += math.rad(degreesPerSecond) * dt
+		part.CFrame = CFrame.new(origin.Position) * CFrame.Angles(0, angle, 0) * origin.Rotation
+	end)
+end
+
+-- Gentle up/down bob for display pieces.
+function MapKit.bob(part: BasePart, amplitude: number, period: number)
+	local origin = part.CFrame
+	local t = 0
+	RunService.Heartbeat:Connect(function(dt)
+		if not part.Parent then
+			return
+		end
+		t += dt
+		part.CFrame = origin + Vector3.new(0, math.sin(t * 2 * math.pi / period) * amplitude, 0)
+	end)
+end
+
+return MapKit
+]=====])
+add("ServerScriptService.DebrisClear.Map", "ModuleScript", "Pit", [=====[
+--!strict
+-- The central pit: what players see below the platforms. Interim version.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
+local Config = require(Shared.Config)
+local MapKit = require(script.Parent.MapKit)
+
+local Pit = {}
+
+function Pit.build(parent: Instance)
+	local c = Config.ARENA_CENTER
+	local model = MapKit.model("Pit", parent)
+	local floor = MapKit.block(
+		CFrame.new(c.X, c.Y - Config.PIT_DEPTH - 1, c.Z),
+		Vector3.new(4 * Config.ARENA_RADIUS + 60, 2, 4 * Config.ARENA_RADIUS + 60),
+		{ Name = "PitFloor", Color = Color3.fromRGB(25, 20, 20), Material = Enum.Material.CorrodedMetal }
+	)
+	floor.Parent = model
+	local glow = MapKit.disc(CFrame.new(c.X, c.Y - Config.PIT_DEPTH + 0.1, c.Z), Config.ARENA_RADIUS * 0.6, 0.2, {
+		Name = "PitGlow",
+		Color = Color3.fromRGB(255, 90, 30),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+		CanQuery = false,
+	})
+	glow.Parent = model
+end
+
+return Pit
+]=====])
+add("ServerScriptService.DebrisClear.Map", "ModuleScript", "PlatformDressing", [=====[
+--!strict
+-- Visual dressing for a hex platform (rim, lights, slot number). Interim: none.
+-- Everything added here is parented to `model` and rides the piston drop.
+
+local PlatformDressing = {}
+
+function PlatformDressing.dress(model: Model, topCFrame: CFrame, color: Color3, slot: number)
+	local _ = { model, topCFrame, color, slot }
+end
+
+return PlatformDressing
+]=====])
+add("ServerScriptService.DebrisClear.Map", "ModuleScript", "Showcase", [=====[
+--!strict
+-- Showcase gallery of the game's models, reached by teleport pad. Interim version.
+-- Contract: returns where teleported players stand. Must include a return pad.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
+local Config = require(Shared.Config)
+local MapKit = require(script.Parent.MapKit)
+
+local Showcase = {}
+
+export type Result = {
+	spawnCFrame: CFrame,
+}
+
+function Showcase.build(parent: Instance): Result
+	local origin = Config.ARENA_CENTER + Config.SHOWCASE_OFFSET
+	local model = MapKit.model("Showcase", parent)
+	MapKit.block(CFrame.new(origin - Vector3.new(0, 1, 0)), Vector3.new(60, 2, 60), {
+		Name = "ShowcaseFloor",
+		Color = Color3.fromRGB(40, 40, 48),
+		Material = Enum.Material.SmoothPlastic,
+	}).Parent = model
+	MapKit.teleportPad(model, CFrame.new(origin + Vector3.new(0, 0.3, 22)), "BACK TO HUB", "Hub", Color3.fromRGB(255, 140, 50))
+	local piece = MapKit.showcaseDebris(model, CFrame.new(origin + Vector3.new(0, 4, 0)), 3)
+	MapKit.spin(piece, 30)
+	return { spawnCFrame = CFrame.new(origin + Vector3.new(0, 3.5, 10)) }
+end
+
+return Showcase
+]=====])
+add("ServerScriptService.DebrisClear.Map", "ModuleScript", "Towers", [=====[
+--!strict
+-- Tall mono-colored towers around the arena, in the debris color. Interim: none.
+
+local Towers = {}
+
+function Towers.build(parent: Instance)
+	local _ = parent
+end
+
+return Towers
+]=====])
+add("StarterPlayer.StarterPlayerScripts.DebrisClear", "LocalScript", "Main", [=====[
 --!strict
 -- Debris Clear client entry point.
 
@@ -1850,7 +2269,105 @@ RingMeterController.start()
 InteractionController.start()
 task.spawn(DebrisVisuals.start) -- may yield while building the mesh
 ]=====])
-add("StarterPlayer.StarterPlayerScripts", "ModuleScript", "Hud", [=====[
+add("StarterPlayer.StarterPlayerScripts.DebrisClear", "ModuleScript", "DebrisVisuals", [=====[
+--!strict
+-- EditableMesh geometry doesn't replicate, so when the server marks debris
+-- Visual = "Client" its physics part is invisible and each client renders a
+-- local d10 that follows it.
+
+local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
+local Config = require(Shared.Config)
+local DecahedronMesh = require(Shared.DecahedronMesh)
+
+local DEBRIS_TAG = "DebrisClearDebris"
+
+local DebrisVisuals = {}
+
+local template: BasePart? = nil
+local tracked: { [BasePart]: BasePart } = {}
+local folder: Folder
+
+local function getTemplate(): BasePart
+	if template then
+		return template
+	end
+	local part: BasePart? = DecahedronMesh.createMeshPart(Config.DEBRIS_SIZE)
+	if not part then
+		local ball = Instance.new("Part")
+		ball.Shape = Enum.PartType.Ball
+		ball.Size = Vector3.one * Config.DEBRIS_SIZE
+		part = ball
+	end
+	local p = part :: BasePart
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = true
+	p.Color = Config.DEBRIS_COLOR
+	p.Material = Config.DEBRIS_MATERIAL
+	template = p
+	return p
+end
+
+local function track(instance: Instance)
+	if not instance:IsA("BasePart") or instance:GetAttribute("Visual") ~= "Client" then
+		return
+	end
+	local debris = instance :: BasePart
+	if tracked[debris] then
+		return
+	end
+	local visual = getTemplate():Clone()
+	visual.CFrame = debris.CFrame
+	visual.Parent = folder
+	tracked[debris] = visual
+end
+
+local function untrack(instance: Instance)
+	local debris = instance :: BasePart
+	local visual = tracked[debris]
+	if visual then
+		visual:Destroy()
+		tracked[debris] = nil
+	end
+end
+
+-- The locally rendered d10 for a server debris part, if it has one.
+function DebrisVisuals.visualFor(debris: BasePart): BasePart?
+	return tracked[debris]
+end
+
+function DebrisVisuals.start()
+	folder = Instance.new("Folder")
+	folder.Name = "DebrisClearLocalVisuals"
+	folder.Parent = workspace
+	getTemplate() -- build once up front; CreateMeshPartAsync yields
+
+	CollectionService:GetInstanceAddedSignal(DEBRIS_TAG):Connect(track)
+	CollectionService:GetInstanceRemovedSignal(DEBRIS_TAG):Connect(untrack)
+	for _, instance in CollectionService:GetTagged(DEBRIS_TAG) do
+		track(instance)
+	end
+
+	RunService.RenderStepped:Connect(function()
+		for debris, visual in tracked do
+			if debris.Parent then
+				visual.CFrame = debris.CFrame
+			else
+				untrack(debris)
+			end
+		end
+	end)
+end
+
+return DebrisVisuals
+]=====])
+add("StarterPlayer.StarterPlayerScripts.DebrisClear", "ModuleScript", "Hud", [=====[
 --!strict
 -- Round status banner. Pickup/throw UI lives in InteractionController.
 
@@ -1889,107 +2406,7 @@ end
 
 return Hud
 ]=====])
-add("StarterPlayer.StarterPlayerScripts", "ModuleScript", "RingMeterController", [=====[
---!strict
--- Animates each platform's ring meter from the server-replicated "Load"
--- attribute. The ring shows remaining capacity and drains as load rises.
---
--- Each half of the ring is a full ring clipped to half the circle, with a
--- UIGradient that is opaque on one side of a line through the center. For a
--- displayed fraction p (1 = full, 0 = empty, clockwise from 12 o'clock):
---   Right half rotation = clamp(p, 0, 0.5) * 360
---   Left  half rotation = clamp(p, 0.5, 1) * 360
-
-local CollectionService = game:GetService("CollectionService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
-
-local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
-local Config = require(Shared.Config)
-
-local PLATFORM_TAG = "DebrisClearPlatform"
-
-local RingMeterController = {}
-
-local function colorOf(guiObject: GuiObject): (Color3) -> ()
-	local stroke = guiObject:FindFirstChildOfClass("UIStroke")
-	if stroke then
-		return function(c)
-			stroke.Color = c
-		end
-	end
-	return function(c)
-		(guiObject :: ImageLabel).ImageColor3 = c
-	end
-end
-
-local function bind(model: Instance)
-	local meter = model:WaitForChild("Meter", 10)
-	local gui = meter and meter:WaitForChild("RingMeter", 10)
-	local root = gui and gui:WaitForChild("Root", 10)
-	if not root then
-		return
-	end
-	local leftFill = root:WaitForChild("Left"):WaitForChild("Fill") :: GuiObject
-	local rightFill = root:WaitForChild("Right"):WaitForChild("Fill") :: GuiObject
-	local leftSweep = leftFill:FindFirstChild("Sweep", true) :: UIGradient
-	local rightSweep = rightFill:FindFirstChild("Sweep", true) :: UIGradient
-	local valueLabel = root:WaitForChild("Value") :: TextLabel
-	local ownerLabel = root:WaitForChild("Owner") :: TextLabel
-	local setLeftColor, setRightColor = colorOf(leftFill), colorOf(rightFill)
-
-	local shown = Instance.new("NumberValue")
-	shown.Value = 1
-
-	local function render(p: number)
-		rightSweep.Rotation = math.clamp(p, 0, 0.5) * 360
-		leftSweep.Rotation = math.clamp(p, 0.5, 1) * 360
-		local color = Config.RING_COLOR_DANGER:Lerp(Config.RING_COLOR_SAFE, p)
-		setLeftColor(color)
-		setRightColor(color)
-	end
-	shown.Changed:Connect(render)
-
-	local function refresh()
-		local load = (model:GetAttribute("Load") :: number?) or 0
-		local capacity = (model:GetAttribute("Capacity") :: number?) or Config.PLATFORM_CAPACITY
-		local remaining = 1 - math.clamp(load / capacity, 0, 1)
-		valueLabel.Text = `{load} / {capacity}`
-		TweenService:Create(
-			shown,
-			TweenInfo.new(Config.RING_TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ Value = remaining }
-		):Play()
-	end
-	local function refreshOwner()
-		local name = (model:GetAttribute("OwnerName") :: string?) or ""
-		if model:GetAttribute("Eliminated") then
-			name = if name ~= "" then `{name} - OUT` else "OUT"
-		end
-		ownerLabel.Text = name
-	end
-
-	model:GetAttributeChangedSignal("Load"):Connect(refresh)
-	model:GetAttributeChangedSignal("Capacity"):Connect(refresh)
-	model:GetAttributeChangedSignal("OwnerName"):Connect(refreshOwner)
-	model:GetAttributeChangedSignal("Eliminated"):Connect(refreshOwner)
-	render(1)
-	refresh()
-	refreshOwner()
-end
-
-function RingMeterController.start()
-	CollectionService:GetInstanceAddedSignal(PLATFORM_TAG):Connect(function(model)
-		task.spawn(bind, model)
-	end)
-	for _, model in CollectionService:GetTagged(PLATFORM_TAG) do
-		task.spawn(bind, model)
-	end
-end
-
-return RingMeterController
-]=====])
-add("StarterPlayer.StarterPlayerScripts", "ModuleScript", "InteractionController", [=====[
+add("StarterPlayer.StarterPlayerScripts.DebrisClear", "ModuleScript", "InteractionController", [=====[
 --!strict
 -- Pickup + throw on every input type, with one contextual action button.
 --
@@ -2404,104 +2821,106 @@ end
 
 return InteractionController
 ]=====])
-add("StarterPlayer.StarterPlayerScripts", "ModuleScript", "DebrisVisuals", [=====[
+add("StarterPlayer.StarterPlayerScripts.DebrisClear", "ModuleScript", "RingMeterController", [=====[
 --!strict
--- EditableMesh geometry doesn't replicate, so when the server marks debris
--- Visual = "Client" its physics part is invisible and each client renders a
--- local d10 that follows it.
+-- Animates each platform's ring meter from the server-replicated "Load"
+-- attribute. The ring shows remaining capacity and drains as load rises.
+--
+-- Each half of the ring is a full ring clipped to half the circle, with a
+-- UIGradient that is opaque on one side of a line through the center. For a
+-- displayed fraction p (1 = full, 0 = empty, clockwise from 12 o'clock):
+--   Right half rotation = clamp(p, 0, 0.5) * 360
+--   Left  half rotation = clamp(p, 0.5, 1) * 360
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
-local DecahedronMesh = require(Shared.DecahedronMesh)
 
-local DEBRIS_TAG = "DebrisClearDebris"
+local PLATFORM_TAG = "DebrisClearPlatform"
 
-local DebrisVisuals = {}
+local RingMeterController = {}
 
-local template: BasePart? = nil
-local tracked: { [BasePart]: BasePart } = {}
-local folder: Folder
-
-local function getTemplate(): BasePart
-	if template then
-		return template
-	end
-	local part: BasePart? = DecahedronMesh.createMeshPart(Config.DEBRIS_SIZE)
-	if not part then
-		local ball = Instance.new("Part")
-		ball.Shape = Enum.PartType.Ball
-		ball.Size = Vector3.one * Config.DEBRIS_SIZE
-		part = ball
-	end
-	local p = part :: BasePart
-	p.Anchored = true
-	p.CanCollide = false
-	p.CanQuery = false
-	p.CanTouch = false
-	p.CastShadow = true
-	p.Color = Config.DEBRIS_COLOR
-	p.Material = Config.DEBRIS_MATERIAL
-	template = p
-	return p
-end
-
-local function track(instance: Instance)
-	if not instance:IsA("BasePart") or instance:GetAttribute("Visual") ~= "Client" then
-		return
-	end
-	local debris = instance :: BasePart
-	if tracked[debris] then
-		return
-	end
-	local visual = getTemplate():Clone()
-	visual.CFrame = debris.CFrame
-	visual.Parent = folder
-	tracked[debris] = visual
-end
-
-local function untrack(instance: Instance)
-	local debris = instance :: BasePart
-	local visual = tracked[debris]
-	if visual then
-		visual:Destroy()
-		tracked[debris] = nil
-	end
-end
-
--- The locally rendered d10 for a server debris part, if it has one.
-function DebrisVisuals.visualFor(debris: BasePart): BasePart?
-	return tracked[debris]
-end
-
-function DebrisVisuals.start()
-	folder = Instance.new("Folder")
-	folder.Name = "DebrisClearLocalVisuals"
-	folder.Parent = workspace
-	getTemplate() -- build once up front; CreateMeshPartAsync yields
-
-	CollectionService:GetInstanceAddedSignal(DEBRIS_TAG):Connect(track)
-	CollectionService:GetInstanceRemovedSignal(DEBRIS_TAG):Connect(untrack)
-	for _, instance in CollectionService:GetTagged(DEBRIS_TAG) do
-		track(instance)
-	end
-
-	RunService.RenderStepped:Connect(function()
-		for debris, visual in tracked do
-			if debris.Parent then
-				visual.CFrame = debris.CFrame
-			else
-				untrack(debris)
-			end
+local function colorOf(guiObject: GuiObject): (Color3) -> ()
+	local stroke = guiObject:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		return function(c)
+			stroke.Color = c
 		end
-	end)
+	end
+	return function(c)
+		(guiObject :: ImageLabel).ImageColor3 = c
+	end
 end
 
-return DebrisVisuals
+local function bind(model: Instance)
+	local meter = model:WaitForChild("Meter", 10)
+	local gui = meter and meter:WaitForChild("RingMeter", 10)
+	local root = gui and gui:WaitForChild("Root", 10)
+	if not root then
+		return
+	end
+	local leftFill = root:WaitForChild("Left"):WaitForChild("Fill") :: GuiObject
+	local rightFill = root:WaitForChild("Right"):WaitForChild("Fill") :: GuiObject
+	local leftSweep = leftFill:FindFirstChild("Sweep", true) :: UIGradient
+	local rightSweep = rightFill:FindFirstChild("Sweep", true) :: UIGradient
+	local valueLabel = root:WaitForChild("Value") :: TextLabel
+	local ownerLabel = root:WaitForChild("Owner") :: TextLabel
+	local setLeftColor, setRightColor = colorOf(leftFill), colorOf(rightFill)
+
+	local shown = Instance.new("NumberValue")
+	shown.Value = 1
+
+	local function render(p: number)
+		rightSweep.Rotation = math.clamp(p, 0, 0.5) * 360
+		leftSweep.Rotation = math.clamp(p, 0.5, 1) * 360
+		local color = Config.RING_COLOR_DANGER:Lerp(Config.RING_COLOR_SAFE, p)
+		setLeftColor(color)
+		setRightColor(color)
+	end
+	shown.Changed:Connect(render)
+
+	local function refresh()
+		local load = (model:GetAttribute("Load") :: number?) or 0
+		local capacity = (model:GetAttribute("Capacity") :: number?) or Config.PLATFORM_CAPACITY
+		local remaining = 1 - math.clamp(load / capacity, 0, 1)
+		valueLabel.Text = `{load} / {capacity}`
+		TweenService:Create(
+			shown,
+			TweenInfo.new(Config.RING_TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ Value = remaining }
+		):Play()
+	end
+	local function refreshOwner()
+		local name = (model:GetAttribute("OwnerName") :: string?) or ""
+		if model:GetAttribute("Eliminated") then
+			name = if name ~= "" then `{name} - OUT` else "OUT"
+		end
+		ownerLabel.Text = name
+	end
+
+	model:GetAttributeChangedSignal("Load"):Connect(refresh)
+	model:GetAttributeChangedSignal("Capacity"):Connect(refresh)
+	model:GetAttributeChangedSignal("OwnerName"):Connect(refreshOwner)
+	model:GetAttributeChangedSignal("Eliminated"):Connect(refreshOwner)
+	render(1)
+	refresh()
+	refreshOwner()
+end
+
+function RingMeterController.start()
+	CollectionService:GetInstanceAddedSignal(PLATFORM_TAG):Connect(function(model)
+		task.spawn(bind, model)
+	end)
+	for _, model in CollectionService:GetTagged(PLATFORM_TAG) do
+		task.spawn(bind, model)
+	end
+end
+
+return RingMeterController
 ]=====])
 game:GetService("Players").CharacterAutoLoads = false
 if recording then ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Commit) end
-print("[DebrisClear] Installed 16 scripts. Press Play to test (set Config.MIN_PLAYERS = 1 for solo).")
+print("[DebrisClear] Installed 23 scripts. Press Play to test (set Config.MIN_PLAYERS = 1 for solo).")

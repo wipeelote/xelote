@@ -36,6 +36,10 @@ Config.HUB_RAIL_HEIGHT = 4 -- PLACEHOLDER
 -- Falling this far below the hub floor (outside the arena) teleports you back
 -- to the hub instead of killing you.
 Config.HUB_RESCUE_DEPTH = 30 -- PLACEHOLDER
+Config.TELEPORT_COOLDOWN = 1.5 -- PLACEHOLDER: seconds between pad teleports per player
+-- Showcase gallery floor center relative to ARENA_CENTER. Kept at hub height
+-- and far outside the arena so the kill line and rescue logic ignore it.
+Config.SHOWCASE_OFFSET = Vector3.new(180, 28, 95) -- PLACEHOLDER
 Config.PLATFORM_COLORS = { -- PLACEHOLDER: one per platform slot
 	Color3.fromRGB(255, 89, 89),
 	Color3.fromRGB(89, 170, 255),
