@@ -4,12 +4,16 @@
 --
 --   ThrowDebris  client -> server  (aimPoint: Vector3)
 --   Knockback    server -> client  (velocity: Vector3, stunTime: number)
+--   Effects      server -> all     (kind: string, position: Vector3, slot: number, extra: any?)
+--                kinds: "Land"  a piece started counting on platform `slot`
+--                       "Crush" platform `slot` was crushed
+--                       "Win"   round over; extra = winner display name ("" if nobody)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local FOLDER_NAME = "DebrisClearRemotes"
-local NAMES = { "ThrowDebris", "Knockback" }
+local NAMES = { "ThrowDebris", "Knockback", "Effects" }
 
 local Remotes = {}
 

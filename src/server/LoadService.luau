@@ -35,10 +35,14 @@ function LoadService.startRound(assignments: { [Player]: Platform })
 		platform.model:SetAttribute("Load", 0)
 		platform.model:SetAttribute("OwnerName", player.DisplayName)
 		platform.model:SetAttribute("Eliminated", false)
+		player:SetAttribute("PlatformSlot", platform.slot)
 	end
 end
 
 function LoadService.reset()
+	for player in platformOf do
+		player:SetAttribute("PlatformSlot", nil)
+	end
 	table.clear(LoadService.platformLoads)
 	table.clear(platformOf)
 	table.clear(ownerOf)

@@ -80,6 +80,17 @@ Config.LAND_HEIGHT_BAND = 3 -- PLACEHOLDER
 Config.LAND_MAX_SPEED = 6 -- PLACEHOLDER: studs/s
 Config.LAND_SCAN_INTERVAL = 0.1 -- PLACEHOLDER: seconds between server landing scans
 Config.MAX_DEBRIS_TOTAL = 80 -- PLACEHOLDER: safety cap across the whole arena
+-- Pressure curve: spawn intervals shrink linearly from the values above to
+-- the *_END values over SPAWN_RAMP_TIME seconds of the round, then hold.
+Config.SPAWN_RAMP_TIME = 60 -- PLACEHOLDER
+Config.SPAWN_INTERVAL_MIN_END = 1.0 -- PLACEHOLDER
+Config.SPAWN_INTERVAL_MAX_END = 1.8 -- PLACEHOLDER
+-- Landing hysteresis: a piece must sit still on a deck this long before it
+-- counts, and be off/moving this long before it stops counting.
+Config.LAND_SETTLE_TIME = 0.3 -- PLACEHOLDER
+Config.LAND_UNSETTLE_TIME = 0.3 -- PLACEHOLDER
+-- Crushed platforms fling their debris into the lava at this speed.
+Config.CRUSH_SCATTER_SPEED = 45 -- PLACEHOLDER
 
 -- Optional imported mesh. Leave "" to build the d10 at runtime with EditableMesh.
 -- To use an import: upload assets/decahedron.obj via the Asset Manager and paste
@@ -105,11 +116,30 @@ Config.THROW_COOLDOWN = 0.35 -- PLACEHOLDER: minimum seconds between throw reque
 Config.THROW_MAX_AIM_DISTANCE = 500 -- PLACEHOLDER: aim point is clamped to this range
 Config.THROW_FALLBACK_PITCH = math.rad(45) -- PLACEHOLDER: launch angle when the target is out of range (45 = max range)
 Config.THROW_HIT_WINDOW = 1.5 -- PLACEHOLDER: seconds after a throw that a body hit still counts
+Config.HOLD_MAX_TIME = 4 -- PLACEHOLDER: seconds a piece can be held before it drops at your feet
+Config.THROW_WINDUP = 0.15 -- PLACEHOLDER: seconds between the throw input and the launch
+Config.THROW_TRAIL_LIFETIME = 0.35 -- PLACEHOLDER: seconds the trail behind a thrown piece lingers
+Config.ARM_RAISE = true -- PLACEHOLDER: procedural right-arm raise/swing while holding and throwing (client)
 Config.KNOCKBACK_SPEED = 40 -- per spec, horizontal studs/s
 Config.KNOCKBACK_UP = 18 -- PLACEHOLDER: small vertical pop so the hit breaks floor friction
 Config.KNOCKBACK_STUN = 0.45 -- PLACEHOLDER: seconds of PlatformStand after a hit
 Config.AIM_ARC_POINTS = 14 -- PLACEHOLDER: dots in the client-side throw preview arc
 Config.AIM_ARC_MAX_TIME = 2 -- PLACEHOLDER: seconds of flight the preview arc covers at most
+
+---------------------------------------------------------------------------
+-- Client feedback / effects
+---------------------------------------------------------------------------
+Config.LAND_SHADOW_ENABLED = true -- warning disc on the deck under every falling piece
+Config.LAND_SHADOW_HEIGHT = 30 -- PLACEHOLDER: shadow starts showing when the piece is this high above the surface
+Config.LAND_SHADOW_MAX_RADIUS = 1.6 -- PLACEHOLDER: disc radius when the piece is about to land
+Config.LAND_SHADOW_COLOR = Color3.fromRGB(255, 40, 40)
+Config.SHAKE_LAND = 0.35 -- PLACEHOLDER: camera shake for the owner when a piece lands on their platform
+Config.SHAKE_CRUSH = 1.2 -- PLACEHOLDER: camera shake at a crushed platform, falls off with distance
+Config.SHAKE_FALLOFF_RANGE = 120 -- PLACEHOLDER: studs at which crush shake fades to zero
+Config.WIN_CAMERA_TIME = 3 -- PLACEHOLDER: seconds every camera focuses on the winner's platform (0 disables)
+Config.BILLBOARD_ENABLED = true -- floating load bar above each rival platform
+Config.BILLBOARD_HEIGHT = 14 -- PLACEHOLDER: studs above the deck
+Config.BILLBOARD_MAX_DISTANCE = 250 -- PLACEHOLDER
 
 ---------------------------------------------------------------------------
 -- Networking / validation
