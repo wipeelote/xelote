@@ -17,6 +17,7 @@ local DebrisVisuals = {}
 
 local template: BasePart? = nil
 local tracked: { [BasePart]: BasePart } = {}
+local offsets: { [BasePart]: CFrame } = {}
 local folder: Folder
 
 local function getTemplate(): BasePart
@@ -63,11 +64,18 @@ local function untrack(instance: Instance)
 		visual:Destroy()
 		tracked[debris] = nil
 	end
+	offsets[debris] = nil
 end
 
 -- The locally rendered d10 for a server debris part, if it has one.
 function DebrisVisuals.visualFor(debris: BasePart): BasePart?
 	return tracked[debris]
+end
+
+-- Cosmetic offset applied to a piece's local visual (throw wind-up etc.).
+-- nil clears it.
+function DebrisVisuals.setOffset(debris: BasePart, offset: CFrame?)
+	offsets[debris] = offset
 end
 
 function DebrisVisuals.start()
@@ -85,7 +93,8 @@ function DebrisVisuals.start()
 	RunService.RenderStepped:Connect(function()
 		for debris, visual in tracked do
 			if debris.Parent then
-				visual.CFrame = debris.CFrame
+				local offset = offsets[debris]
+				visual.CFrame = if offset then debris.CFrame * offset else debris.CFrame
 			else
 				untrack(debris)
 			end
