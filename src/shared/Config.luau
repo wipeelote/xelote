@@ -40,11 +40,19 @@ Config.TELEPORT_COOLDOWN = 1.5 -- PLACEHOLDER: seconds between pad teleports per
 -- Showcase gallery floor center relative to ARENA_CENTER. Kept at hub height
 -- and far outside the arena so the kill line and rescue logic ignore it.
 Config.SHOWCASE_OFFSET = Vector3.new(180, 28, 95) -- PLACEHOLDER
-Config.PLATFORM_COLORS = { -- PLACEHOLDER: one per platform slot
-	Color3.fromRGB(255, 89, 89),
-	Color3.fromRGB(89, 170, 255),
-	Color3.fromRGB(110, 230, 110),
-	Color3.fromRGB(255, 205, 70),
+-- Identity color per platform slot: neon rim, under-glow, collar ring and the
+-- rig's colored spot. Decks themselves are near-black, tinted toward it.
+Config.PLATFORM_COLORS = { -- PLACEHOLDER
+	Color3.fromRGB(120, 255, 60), -- P1 Lime (front-right from the hub)
+	Color3.fromRGB(255, 230, 60), -- P2 Sun Yellow (front-left)
+	Color3.fromRGB(60, 140, 255), -- P3 Sky Blue (back-left)
+	Color3.fromRGB(240, 240, 255), -- P4 Ice White (back-right)
+}
+Config.PLATFORM_DECK_TINTS = { -- PLACEHOLDER
+	Color3.fromRGB(18, 34, 14),
+	Color3.fromRGB(36, 34, 10),
+	Color3.fromRGB(12, 22, 40),
+	Color3.fromRGB(34, 34, 40),
 }
 
 ---------------------------------------------------------------------------
@@ -72,8 +80,10 @@ Config.DEBRIS_GRAVITY_SCALE = 0.3 -- PLACEHOLDER: the biggest "feel" knob
 Config.DEBRIS_DENSITY = 2 -- PLACEHOLDER
 Config.DEBRIS_FRICTION = 0.8 -- PLACEHOLDER
 Config.DEBRIS_ELASTICITY = 0.1 -- PLACEHOLDER
-Config.DEBRIS_COLOR = Color3.fromRGB(150, 150, 160) -- PLACEHOLDER
-Config.DEBRIS_MATERIAL = Enum.Material.Metal -- PLACEHOLDER
+-- Hot magenta: the d10, its trail, and every part of the towers ("made of
+-- ball"). Nothing else in the map may use it (see Config.MAP notes).
+Config.DEBRIS_COLOR = Color3.fromRGB(255, 40, 170) -- PLACEHOLDER
+Config.DEBRIS_MATERIAL = Enum.Material.SmoothPlastic -- PLACEHOLDER: Neon would hide the d10 facets
 -- Debris counts as "landed" on a platform when it is over the hex footprint, its
 -- center is within this band above the top surface, and it has slowed down.
 Config.LAND_HEIGHT_BAND = 3 -- PLACEHOLDER
@@ -99,6 +109,41 @@ Config.CRUSH_SCATTER_SPEED = 45 -- PLACEHOLDER
 Config.DEBRIS_MESH_ID = ""
 -- Flip this if the EditableMesh d10 renders inside-out.
 Config.DEBRIS_FLIP_WINDING = false
+
+---------------------------------------------------------------------------
+-- Map look ("NEON PIT": a game-show set over a lava crater)
+---------------------------------------------------------------------------
+-- false = tower rings/caps are SmoothPlastic for dead-flat mono-colored towers.
+Config.TOWER_NEON_TRIM = true -- PLACEHOLDER
+-- Palette used by the Map/ modules. Magenta is reserved for DEBRIS_COLOR
+-- things (d10, towers, show logo, spawn ring, tallies, return gate); red is
+-- reserved for the lava.
+Config.MAP = {
+	VOID_BLACK = Color3.fromRGB(12, 12, 20), -- stage, crater wall, monolith, gates, plaques
+	BACKDROP_BLACK = Color3.fromRGB(10, 10, 18), -- backdrop wall panels
+	PANEL_BLACK = Color3.fromRGB(14, 14, 22), -- walkable floors (hub, showcase)
+	PEDESTAL_BLACK = Color3.fromRGB(16, 16, 24), -- pedestal bases, spawn pad, rod sleeves
+	DEEP_NAVY = Color3.fromRGB(10, 12, 30), -- hub back wall, showcase walls
+	BOARD_NAVY = Color3.fromRGB(8, 9, 22), -- scoreboard face
+	AUDIENCE_NAVY = Color3.fromRGB(18, 18, 28), -- audience tiers
+	STUDIO_GREY = Color3.fromRGB(30, 30, 40), -- truss ring, light bars, jib arm, rail caps
+	FIXTURE_GREY = Color3.fromRGB(20, 20, 28), -- light fixture and camera housings
+	PAD_BASE = Color3.fromRGB(20, 20, 30), -- teleport pad bases
+	COLLAR_IRON = Color3.fromRGB(24, 24, 34), -- piston collars (Metal)
+	ROD_STEEL = Color3.fromRGB(36, 38, 50), -- piston rods (Metal)
+	ELECTRIC_CYAN = Color3.fromRGB(0, 220, 255), -- primary neon trim
+	GRID_CYAN = Color3.fromRGB(0, 170, 210), -- dimmer neon: floor frames, lines, strips
+	LAVA_BASE = Color3.fromRGB(140, 18, 4), -- full-pit lava disc (dim so bloom never whites out)
+	LAVA_CORE = Color3.fromRGB(255, 70, 15), -- core disc, heat rings
+	LAVA_LIGHT = Color3.fromRGB(255, 80, 20), -- lava point lights
+	LAVA_FLOW = Color3.fromRGB(255, 120, 30), -- hot-spot discs
+	LAVA_HEART = Color3.fromRGB(255, 160, 60), -- center heart disc
+	LAVA_CRUST = Color3.fromRGB(28, 6, 4), -- cooled crust plates
+	RAIL_GLASS = Color3.fromRGB(200, 220, 255), -- Glass rails, Transparency 0.7
+	KEY_WHITE = Color3.fromRGB(230, 235, 255), -- key spots
+	ROOM_WHITE = Color3.fromRGB(200, 230, 255), -- showcase corner-post lights
+}
+Config.RAIL_GLASS_TRANSPARENCY = 0.7 -- PLACEHOLDER
 
 ---------------------------------------------------------------------------
 -- Pickup / throw

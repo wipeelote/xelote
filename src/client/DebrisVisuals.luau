@@ -74,6 +74,11 @@ local function track(instance: Instance)
 	local visual: BasePart? = nil
 	if debris:GetAttribute("Visual") == "Client" then
 		local clone = getTemplate():Clone()
+		-- Display pieces (showcase) can ask for a bigger d10.
+		local scale = debris:GetAttribute("VisualScale")
+		if typeof(scale) == "number" and scale > 0 and scale ~= 1 then
+			clone.Size = clone.Size * scale
+		end
 		clone.CFrame = debris.CFrame
 		clone.Parent = folder
 		visual = clone
