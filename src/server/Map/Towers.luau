@@ -44,7 +44,8 @@ local TUNING = {
 	CAP_RADIUS = 4.6, -- PLACEHOLDER
 	CAP_THICKNESS = 1.6, -- PLACEHOLDER
 	PLINTH_LIGHT = { brightness = 1.5, range = 30 }, -- PLACEHOLDER: magenta pool on the stage
-	CAP_LIGHT = { brightness = 2.5, range = 45 }, -- PLACEHOLDER
+	-- No cap PointLight: the Neon cap and the searchlight Beam (LightEmission 1)
+	-- carry the glow, keeping the module at 18 lights and magenta off the hub.
 	SEARCHLIGHT = { height = 140, width0 = 7, width1 = 0.5 }, -- PLACEHOLDER: beam rising from each cap
 
 	-- Truss ring over the arena.
@@ -65,13 +66,18 @@ local TUNING = {
 	JIB_ARM_SIZE = Vector3.new(2, 2, 32), -- PLACEHOLDER
 	JIB_HEAD_POSITION = Vector3.new(0, 102.5, -18), -- PLACEHOLDER
 	JIB_HEAD_SIZE = Vector3.new(3, 2.5, 4), -- PLACEHOLDER
-	JIB_TARGET_Y = 15.65, -- PLACEHOLDER: LavaHeart top (Pit P3); the spot pools there
+	JIB_TARGET_Y = 15.65, -- PLACEHOLDER: LavaHeart top (Pit P3); the head looks at it
 	LENS_RADIUS = 1.2, -- PLACEHOLDER
 	LENS_LENGTH = 2.5, -- PLACEHOLDER
 	LENS_OFFSET = 3, -- PLACEHOLDER: lens center ahead of the head center, along the look
 	TALLY_SIZE = 0.6, -- PLACEHOLDER
 	TALLY_OFFSET = Vector3.new(0, 1.55, 0.5), -- PLACEHOLDER: head-local, on the head top
-	PITCAM_SPOT = { angle = 22, brightness = 2, range = 100 }, -- PLACEHOLDER
+	-- The head is ~89 studs from the heart, beyond a light's 60-stud Range cap,
+	-- so the spot itself sits on an invisible emitter straight above the heart
+	-- (top of the LavaHeart + 56 studs), pointing down. At Angle 22 the pool
+	-- radius is ~11.7 studs, matching the 12-stud heart.
+	PITCAM_EMITTER_Y = 72, -- PLACEHOLDER: world Y of the invisible spot emitter over the pit center
+	PITCAM_SPOT = { angle = 22, brightness = 2, range = 60 }, -- PLACEHOLDER: Range 60 is the Roblox maximum
 	TALLY_BLINK = { period = 1.2, maxT = 0.7 }, -- PLACEHOLDER
 }
 
@@ -135,7 +141,6 @@ local function buildTower(spec: TowerSpec, parent: Instance)
 		trim(towerProps("Cap", trimMaterial))
 	)
 	cap.Parent = tower
-	MapKit.pointLight(cap, Config.DEBRIS_COLOR, TUNING.CAP_LIGHT.brightness, TUNING.CAP_LIGHT.range)
 	-- After parenting: the beam's top attachment is placed in world space.
 	MapKit.beamUp(cap, TUNING.SEARCHLIGHT.height, TUNING.SEARCHLIGHT.width0, TUNING.SEARCHLIGHT.width1, Config.DEBRIS_COLOR)
 end
@@ -180,7 +185,8 @@ local function buildRig(parent: Instance)
 		spotFixture(slotAngle + TUNING.FIXTURE_OFFSET_DEG, deck, Config.MAP.KEY_WHITE, TUNING.KEY_SPOT)
 	end
 
-	-- PIT CAM: a hard white pool on the LavaHeart, the set's focal point.
+	-- PIT CAM: the head/lens/tally hang under the jib looking at the LavaHeart;
+	-- the spot that pools on the heart is emitted from closer in (see below).
 	local jib = MapKit.model("PitCam", model)
 	MapKit.truss(trussProps("PitCamArm", TUNING.JIB_ARM_SIZE, CFrame.new(flat + TUNING.JIB_ARM_CENTER))).Parent = jib
 
@@ -188,7 +194,6 @@ local function buildRig(parent: Instance)
 	local headCF = CFrame.lookAt(flat + TUNING.JIB_HEAD_POSITION, target)
 	local head = MapKit.block(headCF, TUNING.JIB_HEAD_SIZE, housing("PitCamHead"))
 	head.Parent = jib
-	MapKit.spotLight(head, Enum.NormalId.Front, Config.MAP.KEY_WHITE, TUNING.PITCAM_SPOT.angle, TUNING.PITCAM_SPOT.brightness, TUNING.PITCAM_SPOT.range)
 	MapKit.surfaceText(head, Enum.NormalId.Right, "PIT CAM", {
 		Font = Enum.Font.Gotham,
 		TextColor3 = Config.MAP.ELECTRIC_CYAN,
@@ -209,6 +214,16 @@ local function buildRig(parent: Instance)
 	}))
 	tally.Parent = jib
 	MapKit.blink(tally, TUNING.TALLY_BLINK.period, TUNING.TALLY_BLINK.maxT)
+
+	-- The spot's real source: an invisible, untouchable 1-stud part in the open
+	-- pit column, within Range of the heart. Nothing plays there (debris falls
+	-- over the decks, players drop through the pit), so it never gets in the way.
+	local emitter = MapKit.block(CFrame.new(flat + Vector3.new(0, TUNING.PITCAM_EMITTER_Y, 0)), Vector3.one, trim({
+		Name = "PitCamSpot",
+		Transparency = 1,
+	}))
+	emitter.Parent = jib
+	MapKit.spotLight(emitter, Enum.NormalId.Bottom, Config.MAP.KEY_WHITE, TUNING.PITCAM_SPOT.angle, TUNING.PITCAM_SPOT.brightness, TUNING.PITCAM_SPOT.range)
 end
 
 function Towers.build(parent: Instance)

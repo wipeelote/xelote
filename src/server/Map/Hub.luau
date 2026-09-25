@@ -44,13 +44,15 @@ local TUNING = {
 	WALL_TOP_TRIM = { height = 0.5, depth = 1.2 }, -- PLACEHOLDER
 	WALL_POST = { size = Vector3.new(0.5, 20, 0.5), inset = 0.25, z = 18.9 }, -- PLACEHOLDER: verticals 0.35 proud of the wall
 	WALL_POST_LIGHT = { brightness = 1, range = 25 }, -- PLACEHOLDER
-	ON_AIR_LABEL = { size = UDim2.fromScale(0.22, 0.14), position = UDim2.fromScale(0.04, 0.16) }, -- PLACEHOLDER
-	CONTROLS_LABEL = { size = UDim2.fromScale(0.22, 0.1), position = UDim2.fromScale(0.74, 0.18) }, -- PLACEHOLDER
+	-- Both labels keep clear of the scoreboard frame (|x| <= 19, y <= 16.55),
+	-- which stands proud of the wall and would hide anything behind it.
+	ON_AIR_LABEL = { size = UDim2.fromScale(0.15, 0.14), position = UDim2.fromScale(0.05, 0.16) }, -- PLACEHOLDER: x +19.2..+28.8
+	CONTROLS_LABEL = { size = UDim2.fromScale(0.4, 0.1), position = UDim2.fromScale(0.3, 0.02) }, -- PLACEHOLDER: centered above the board, y 17.6..19.6
 	CONTROLS_TEXT = "E = GRAB   CLICK = THROW", -- PLACEHOLDER
 	-- A Front-face gui runs from the part's +X edge toward -X (facing the back
-	-- wall, +X is the viewer's left), so the ON AIR label (gui x 0.04..0.26)
-	-- lands at x +15..+29 and the tally hangs over it there.
-	TALLY = { position = Vector3.new(22, 18.2, 18.9), size = Vector3.new(8, 1, 0.4) }, -- PLACEHOLDER
+	-- wall, +X is the viewer's left), so the ON AIR label (gui x 0.05..0.20)
+	-- lands at x +19.2..+28.8 and the tally hangs centered over it at x 24.
+	TALLY = { position = Vector3.new(24, 18.2, 18.9), size = Vector3.new(8, 1, 0.4) }, -- PLACEHOLDER
 	TALLY_BLINK = { period = 1.0, maxT = 0.7 }, -- PLACEHOLDER
 
 	BOARD = { position = Vector3.new(0, 9, 18.8), size = Vector3.new(36, 14, 0.6) }, -- PLACEHOLDER: world Y 90..104, 0.1 into the wall
@@ -187,7 +189,8 @@ function Hub.build(parent: Instance): Result
 		MapKit.block(h(x, capY, 0), Vector3.new(cap.width, cap.height, D), neon("SideRailCap", Config.MAP.GRID_CYAN)).Parent = model
 	end
 
-	-- Back wall with ON AIR (viewer's left) and the controls caption (right).
+	-- Back wall with ON AIR (viewer's left) and the controls caption centered
+	-- above the scoreboard.
 	local wall = TUNING.BACK_WALL
 	local wallZ = hd - wall.thickness / 2
 	local backWall = MapKit.block(h(0, wall.height / 2, wallZ), Vector3.new(W, wall.height, wall.thickness), plastic("BackWall", Config.MAP.DEEP_NAVY))

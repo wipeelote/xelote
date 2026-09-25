@@ -88,7 +88,17 @@ end
 function Lighting.apply()
 	apply(LightingService, TUNING.LIGHTING)
 
-	local atmosphere = findOrCreate("Atmosphere", TUNING.ATMOSPHERE_NAME)
+	-- Roblox honours only one Atmosphere under Lighting, and Studio templates
+	-- ship one named "Atmosphere": adopt the first one found (whatever its
+	-- name) and remove any others so ours is the one that renders.
+	local atmosphere = LightingService:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
+	atmosphere.Name = TUNING.ATMOSPHERE_NAME
+	atmosphere.Parent = LightingService
+	for _, child in LightingService:GetChildren() do
+		if child:IsA("Atmosphere") and child ~= atmosphere then
+			child:Destroy()
+		end
+	end
 	apply(atmosphere, TUNING.ATMOSPHERE)
 
 	local bloom = findOrCreate("BloomEffect", TUNING.BLOOM_NAME)

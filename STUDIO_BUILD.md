@@ -11,9 +11,10 @@
    - `StarterPlayer.StarterPlayerScripts.DebrisClear`
 2. For every section under **Scripts**, create an instance of the stated **class** with the stated **name** inside the stated folder, and set its `Source` to the code block verbatim.
    - A `Script` or `LocalScript` must have its class set exactly as written. Scripts find each other with `script.Parent.<Name>`, so the names must match exactly (case-sensitive, no extension).
-3. Leave the rest of the place alone. The server script builds the arena, pit, platforms, and spawn hub at runtime and disables any other SpawnLocations.
+3. Leave the rest of the place alone (a Baseplate is fine; it can be deleted). The server script builds the whole NEON PIT set at runtime: lava crater, stage, towers, light rig, platforms, spawn hub and showcase gallery, and disables any other SpawnLocations.
 4. Optional: set `Players.CharacterAutoLoads = false`. The server also sets it at runtime.
-5. To test: set `MIN_PLAYERS = 1` in `Config` for solo play, then press **Play**, or use **Test → Clients and Servers** with 2–4 players.
+5. In the Explorer select **Lighting** and set **Technology = Future** (a script can't set it). ShadowMap works too but loses the glossy floor reflections.
+6. To test: set `MIN_PLAYERS = 1` in `Config` for solo play, then press **Play**, or use **Test → Clients and Servers** with 2–4 players.
 
 **Shortcut:** `studio-installer.luau` (in the same repo) is a single script that creates everything below. Paste it into the Studio **Command Bar**, or run it with a Studio MCP "run code" tool.
 
@@ -108,11 +109,19 @@ Config.TELEPORT_COOLDOWN = 1.5 -- PLACEHOLDER: seconds between pad teleports per
 -- Showcase gallery floor center relative to ARENA_CENTER. Kept at hub height
 -- and far outside the arena so the kill line and rescue logic ignore it.
 Config.SHOWCASE_OFFSET = Vector3.new(180, 28, 95) -- PLACEHOLDER
-Config.PLATFORM_COLORS = { -- PLACEHOLDER: one per platform slot
-	Color3.fromRGB(255, 89, 89),
-	Color3.fromRGB(89, 170, 255),
-	Color3.fromRGB(110, 230, 110),
-	Color3.fromRGB(255, 205, 70),
+-- Identity color per platform slot: neon rim, under-glow, collar ring and the
+-- rig's colored spot. Decks themselves are near-black, tinted toward it.
+Config.PLATFORM_COLORS = { -- PLACEHOLDER
+	Color3.fromRGB(120, 255, 60), -- P1 Lime (front-right from the hub)
+	Color3.fromRGB(255, 230, 60), -- P2 Sun Yellow (front-left)
+	Color3.fromRGB(60, 140, 255), -- P3 Sky Blue (back-left)
+	Color3.fromRGB(240, 240, 255), -- P4 Ice White (back-right)
+}
+Config.PLATFORM_DECK_TINTS = { -- PLACEHOLDER
+	Color3.fromRGB(18, 34, 14),
+	Color3.fromRGB(36, 34, 10),
+	Color3.fromRGB(12, 22, 40),
+	Color3.fromRGB(34, 34, 40),
 }
 
 ---------------------------------------------------------------------------
@@ -140,8 +149,10 @@ Config.DEBRIS_GRAVITY_SCALE = 0.3 -- PLACEHOLDER: the biggest "feel" knob
 Config.DEBRIS_DENSITY = 2 -- PLACEHOLDER
 Config.DEBRIS_FRICTION = 0.8 -- PLACEHOLDER
 Config.DEBRIS_ELASTICITY = 0.1 -- PLACEHOLDER
-Config.DEBRIS_COLOR = Color3.fromRGB(150, 150, 160) -- PLACEHOLDER
-Config.DEBRIS_MATERIAL = Enum.Material.Metal -- PLACEHOLDER
+-- Hot magenta: the d10, its trail, and every part of the towers ("made of
+-- ball"). Nothing else in the map may use it (see Config.MAP notes).
+Config.DEBRIS_COLOR = Color3.fromRGB(255, 40, 170) -- PLACEHOLDER
+Config.DEBRIS_MATERIAL = Enum.Material.SmoothPlastic -- PLACEHOLDER: Neon would hide the d10 facets
 -- Debris counts as "landed" on a platform when it is over the hex footprint, its
 -- center is within this band above the top surface, and it has slowed down.
 Config.LAND_HEIGHT_BAND = 3 -- PLACEHOLDER
@@ -167,6 +178,41 @@ Config.CRUSH_SCATTER_SPEED = 45 -- PLACEHOLDER
 Config.DEBRIS_MESH_ID = ""
 -- Flip this if the EditableMesh d10 renders inside-out.
 Config.DEBRIS_FLIP_WINDING = false
+
+---------------------------------------------------------------------------
+-- Map look ("NEON PIT": a game-show set over a lava crater)
+---------------------------------------------------------------------------
+-- false = tower rings/caps are SmoothPlastic for dead-flat mono-colored towers.
+Config.TOWER_NEON_TRIM = true -- PLACEHOLDER
+-- Palette used by the Map/ modules. Magenta is reserved for DEBRIS_COLOR
+-- things (d10, towers, show logo, spawn ring, tallies, return gate); red is
+-- reserved for the lava.
+Config.MAP = {
+	VOID_BLACK = Color3.fromRGB(12, 12, 20), -- stage, crater wall, monolith, gates, plaques
+	BACKDROP_BLACK = Color3.fromRGB(10, 10, 18), -- backdrop wall panels
+	PANEL_BLACK = Color3.fromRGB(14, 14, 22), -- walkable floors (hub, showcase)
+	PEDESTAL_BLACK = Color3.fromRGB(16, 16, 24), -- pedestal bases, spawn pad, rod sleeves
+	DEEP_NAVY = Color3.fromRGB(10, 12, 30), -- hub back wall, showcase walls
+	BOARD_NAVY = Color3.fromRGB(8, 9, 22), -- scoreboard face
+	AUDIENCE_NAVY = Color3.fromRGB(18, 18, 28), -- audience tiers
+	STUDIO_GREY = Color3.fromRGB(30, 30, 40), -- truss ring, light bars, jib arm, rail caps
+	FIXTURE_GREY = Color3.fromRGB(20, 20, 28), -- light fixture and camera housings
+	PAD_BASE = Color3.fromRGB(20, 20, 30), -- teleport pad bases
+	COLLAR_IRON = Color3.fromRGB(24, 24, 34), -- piston collars (Metal)
+	ROD_STEEL = Color3.fromRGB(36, 38, 50), -- piston rods (Metal)
+	ELECTRIC_CYAN = Color3.fromRGB(0, 220, 255), -- primary neon trim
+	GRID_CYAN = Color3.fromRGB(0, 170, 210), -- dimmer neon: floor frames, lines, strips
+	LAVA_BASE = Color3.fromRGB(140, 18, 4), -- full-pit lava disc (dim so bloom never whites out)
+	LAVA_CORE = Color3.fromRGB(255, 70, 15), -- core disc, heat rings
+	LAVA_LIGHT = Color3.fromRGB(255, 80, 20), -- lava point lights
+	LAVA_FLOW = Color3.fromRGB(255, 120, 30), -- hot-spot discs
+	LAVA_HEART = Color3.fromRGB(255, 160, 60), -- center heart disc
+	LAVA_CRUST = Color3.fromRGB(28, 6, 4), -- cooled crust plates
+	RAIL_GLASS = Color3.fromRGB(200, 220, 255), -- Glass rails, Transparency 0.7
+	KEY_WHITE = Color3.fromRGB(230, 235, 255), -- key spots
+	ROOM_WHITE = Color3.fromRGB(200, 230, 255), -- showcase corner-post lights
+}
+Config.RAIL_GLASS_TRANSPARENCY = 0.7 -- PLACEHOLDER
 
 ---------------------------------------------------------------------------
 -- Pickup / throw
@@ -787,6 +833,7 @@ local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
 local HexGeometry = require(Shared.HexGeometry)
 local Map = script.Parent.Map
+local MapKit = require(Map.MapKit)
 local Pit = require(Map.Pit)
 local Towers = require(Map.Towers)
 local Hub = require(Map.Hub)
@@ -824,194 +871,6 @@ local function anchoredPart(className: string, props: { [string]: any }): BasePa
 	return part
 end
 
--- Two right-angle WedgeParts that fill triangle (a, b, c), `thickness` thick,
--- centered on the triangle's plane.
-local function triangleWedges(a: Vector3, b: Vector3, c: Vector3, thickness: number, props: { [string]: any }): (BasePart, BasePart)
-	local ab, ac, bc = b - a, c - a, c - b
-	local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
-	-- Rotate the labels so the longest edge is b -> c.
-	if abd > acd and abd > bcd then
-		c, a = a, c
-	elseif acd > bcd and acd > abd then
-		a, b = b, a
-	end
-	ab, ac, bc = b - a, c - a, c - b
-
-	local right = ac:Cross(ab).Unit
-	local up = bc:Cross(right).Unit
-	local back = bc.Unit
-	local height = math.abs(ab:Dot(up))
-
-	local w1 = anchoredPart("WedgePart", props)
-	w1.Size = Vector3.new(thickness, height, math.abs(ab:Dot(back)))
-	w1.CFrame = CFrame.fromMatrix((a + b) / 2, right, up, back)
-
-	local w2 = anchoredPart("WedgePart", props)
-	w2.Size = Vector3.new(thickness, height, math.abs(ac:Dot(back)))
-	w2.CFrame = CFrame.fromMatrix((a + c) / 2, -right, up, -back)
-	return w1, w2
-end
-
--- Flat regular hexagon = a center block plus two end triangles (4 wedges).
--- An exact hexagon can't be made from 6 right-angle wedges; this is the
--- fewest-part equivalent.
-local function buildHexDeck(topCFrame: CFrame, color: Color3, parent: Instance)
-	local R = Config.PLATFORM_RADIUS
-	local T = Config.PLATFORM_THICKNESS
-	local a = HexGeometry.apothem(R)
-	local mid = topCFrame * CFrame.new(0, -T / 2, 0)
-	local props = {
-		Color = color,
-		Material = Enum.Material.DiamondPlate,
-		Name = "Deck",
-	}
-
-	local block = anchoredPart("Part", props)
-	block.Size = Vector3.new(R, T, 2 * a)
-	block.CFrame = mid
-	block.Parent = parent
-
-	local corners = HexGeometry.corners(R)
-	local function world(i: number): Vector3
-		local v = corners[i + 1]
-		return mid:PointToWorldSpace(Vector3.new(v.X, 0, v.Y))
-	end
-	for _, tri in { { 5, 0, 1 }, { 2, 3, 4 } } do
-		local w1, w2 = triangleWedges(world(tri[1]), world(tri[2]), world(tri[3]), T, props)
-		w1.Parent = parent
-		w2.Parent = parent
-	end
-	return block
-end
-
--- The ring is drawn in two clipped halves. Each half holds a full ring whose
--- UIGradient is opaque on one side of a line through the center. Rotating
--- that gradient sweeps the visible arc (see client RingMeterController).
-local function ringElement(pixelSize: number, color: Color3, zIndex: number): (GuiObject, UIGradient)
-	local gradient = Instance.new("UIGradient")
-	gradient.Name = "Sweep"
-
-	if Config.RING_IMAGE_ID ~= "" then
-		local image = Instance.new("ImageLabel")
-		image.BackgroundTransparency = 1
-		image.Image = Config.RING_IMAGE_ID
-		image.ImageColor3 = color
-		image.ZIndex = zIndex
-		gradient.Parent = image
-		return image, gradient
-	end
-
-	local stroke = math.floor(pixelSize * Config.RING_THICKNESS)
-	local frame = Instance.new("Frame")
-	frame.BackgroundTransparency = 1
-	frame.ZIndex = zIndex
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.5, 0)
-	corner.Parent = frame
-	local uiStroke = Instance.new("UIStroke")
-	uiStroke.Thickness = stroke
-	uiStroke.Color = color
-	uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	uiStroke.Parent = frame
-	gradient.Parent = uiStroke
-	return frame, gradient
-end
-
-local function buildRingMeter(topCFrame: CFrame, parent: Instance)
-	local a = HexGeometry.apothem(Config.PLATFORM_RADIUS)
-	local side = 2 * a * 0.92
-
-	local meterPart = anchoredPart("Part", {
-		Name = "Meter",
-		Size = Vector3.new(side, 0.1, side),
-		Transparency = 1,
-		CanCollide = false,
-		CanQuery = false,
-		CanTouch = false,
-	})
-	meterPart.CFrame = topCFrame * CFrame.new(0, 0.06, 0)
-	meterPart.Parent = parent
-
-	local gui = Instance.new("SurfaceGui")
-	gui.Name = "RingMeter"
-	gui.Face = Enum.NormalId.Top
-	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	gui.PixelsPerStud = Config.RING_PIXELS_PER_STUD
-	gui.LightInfluence = 0
-	gui.Brightness = 1.5
-	gui.Parent = meterPart
-
-	local pixelSize = side * Config.RING_PIXELS_PER_STUD
-	local strokePx = if Config.RING_IMAGE_ID == "" then math.floor(pixelSize * Config.RING_THICKNESS) else 0
-
-	local root = Instance.new("Frame")
-	root.Name = "Root"
-	root.BackgroundTransparency = 1
-	root.Size = UDim2.fromScale(1, 1)
-	root.Parent = gui
-
-	-- Dim full ring behind the fill.
-	local track = ringElement(pixelSize, Color3.fromRGB(30, 30, 35), 1)
-	track.Name = "Track"
-	track.Size = UDim2.new(1, -2 * strokePx, 1, -2 * strokePx)
-	track.Position = UDim2.fromOffset(strokePx, strokePx)
-	track.Parent = root
-	local trackGradient = track:FindFirstChild("Sweep", true)
-	if trackGradient then
-		trackGradient:Destroy()
-	end
-
-	local halves = {
-		{ name = "Left", clipX = 0, ringX = 0 },
-		{ name = "Right", clipX = 0.5, ringX = -1 },
-	}
-	for _, h in halves do
-		local clip = Instance.new("Frame")
-		clip.Name = h.name
-		clip.BackgroundTransparency = 1
-		clip.ClipsDescendants = true
-		clip.Size = UDim2.fromScale(0.5, 1)
-		clip.Position = UDim2.fromScale(h.clipX, 0)
-		clip.Parent = root
-
-		local fill, gradient = ringElement(pixelSize, Config.RING_COLOR_SAFE, 2)
-		fill.Name = "Fill"
-		fill.Size = UDim2.new(2, -2 * strokePx, 1, -2 * strokePx)
-		fill.Position = UDim2.new(h.ringX, strokePx, 0, strokePx)
-		fill.Parent = clip
-		gradient.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0),
-			NumberSequenceKeypoint.new(0.4999, 0),
-			NumberSequenceKeypoint.new(0.5, 1),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		-- Full ring at spawn: Left = 360 degrees, Right = 180 degrees.
-		gradient.Rotation = if h.name == "Left" then 360 else 180
-	end
-
-	local label = Instance.new("TextLabel")
-	label.Name = "Value"
-	label.BackgroundTransparency = 1
-	label.AnchorPoint = Vector2.new(0.5, 0.5)
-	label.Position = UDim2.fromScale(0.5, 0.5)
-	label.Size = UDim2.fromScale(0.5, 0.18)
-	label.Font = Enum.Font.GothamBlack
-	label.TextScaled = true
-	label.TextColor3 = Color3.new(1, 1, 1)
-	label.TextStrokeTransparency = 0.4
-	label.Text = `0 / {Config.PLATFORM_CAPACITY}`
-	label.ZIndex = 3
-	label.Parent = root
-
-	local owner = label:Clone()
-	owner.Name = "Owner"
-	owner.Position = UDim2.fromScale(0.5, 0.66)
-	owner.Size = UDim2.fromScale(0.45, 0.09)
-	owner.Font = Enum.Font.GothamBold
-	owner.Text = ""
-	owner.Parent = root
-end
-
 local function buildPlatform(slot: number, parent: Instance): Platform
 	local angle = math.rad(45 + 90 * (slot - 1))
 	local center = Config.ARENA_CENTER + Vector3.new(math.cos(angle), 0, math.sin(angle)) * Config.ARENA_RADIUS
@@ -1023,7 +882,11 @@ local function buildPlatform(slot: number, parent: Instance): Platform
 	local model = Instance.new("Model")
 	model.Name = `Platform{slot}`
 
-	local block = buildHexDeck(topCFrame, color, model)
+	local block = MapKit.hexDeck(topCFrame, Config.PLATFORM_RADIUS, Config.PLATFORM_THICKNESS, model, {
+		Name = "Deck",
+		Color = color,
+		Material = Enum.Material.DiamondPlate,
+	})
 	model.PrimaryPart = block
 
 	-- Piston rod the deck rides on, reaching down to the pit floor.
@@ -1042,7 +905,7 @@ local function buildPlatform(slot: number, parent: Instance): Platform
 	-- collected so it rides the piston drop with the deck.
 	PlatformDressing.dress(model, topCFrame, color, slot)
 
-	buildRingMeter(topCFrame, model)
+	MapKit.ringMeter(topCFrame, Config.PLATFORM_RADIUS, model)
 
 	model:SetAttribute("Slot", slot)
 	model:SetAttribute("Load", 0)
@@ -2162,9 +2025,13 @@ _Repo file: `src/server/Map/Hub.luau`_
 
 ```lua
 --!strict
--- Raised spawn hub overlooking the pit. Interim version (ported from Arena).
--- Contract: returns the SpawnLocation, the status TextLabel (or nil) and the
--- hub floor's top Y. Must include a teleport pad to the showcase.
+-- The audience balcony over the pit: a glossy black deck with a cyan floor
+-- frame and glass rails, standing on a 50-stud black monolith that carries the
+-- show logo on its pit-facing wall. Back wall: framed scoreboard, blinking
+-- ON AIR tally, magenta spawn ring, a neon gate around the SHOWCASE pad and
+-- two white key spots. Builds model "SpawnHub" under `parent`.
+-- Contract: returns the SpawnLocation, the "Status" TextLabel the server
+-- writes round status into, and the hub floor's top Y.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -2180,68 +2047,310 @@ export type Result = {
 	floorY: number,
 }
 
+-- Hub-local studs: origin at the floor's top center, +X to the right when
+-- facing the pit, -Z toward the pit. The floor is Config.HUB_SIZE (64 x 2 x 40)
+-- and the rail edges derive from it; everything else is listed here.
+local TUNING = {
+	MONOLITH_HEIGHT = 50, -- PLACEHOLDER: floor bottom (world 86) down to the stage top (36)
+	MONOLITH_LINE_YS = { -48, -42, -12, -6 }, -- PLACEHOLDER: neon lines on the pit face; the logo sits between the pairs
+	MONOLITH_LINE_THICKNESS = 0.3, -- PLACEHOLDER
+	MONOLITH_LOGO = { size = UDim2.fromScale(0.9, 0.3), position = UDim2.fromScale(0.05, 0.3), brightness = 1.5 }, -- PLACEHOLDER
+	LOGO_STROKE = 4, -- PLACEHOLDER: cyan UIStroke thickness on the monolith logo
+	BOARD_LOGO_STROKE = 3, -- PLACEHOLDER: same on the scoreboard title
+
+	FRAME_INSET = 2, -- PLACEHOLDER: floor frame border this far in from every floor edge
+	FRAME_RUNWAY_X = 8, -- PLACEHOLDER: two extra lines flanking the spawn toward the front rail
+	FRAME_STRIP = { height = 0.16, width = 0.3 }, -- PLACEHOLDER: bottom flush with the floor top
+
+	RAIL_GLASS = { height = 3.6, thickness = 0.3 }, -- PLACEHOLDER: outer face flush with the floor edge
+	RAIL_CAP = { width = 0.6, height = 0.4 }, -- PLACEHOLDER: top at HUB_RAIL_HEIGHT (4)
+	RAIL_STRIP = { height = 0.25, depth = 0.15 }, -- PLACEHOLDER: cyan line on the front cap's OUTER face only
+
+	BACK_WALL = { height = 20, thickness = 1 }, -- PLACEHOLDER: world Y 88..108, flush with the floor's back edge
+	WALL_TOP_TRIM = { height = 0.5, depth = 1.2 }, -- PLACEHOLDER
+	WALL_POST = { size = Vector3.new(0.5, 20, 0.5), inset = 0.25, z = 18.9 }, -- PLACEHOLDER: verticals 0.35 proud of the wall
+	WALL_POST_LIGHT = { brightness = 1, range = 25 }, -- PLACEHOLDER
+	-- Both labels keep clear of the scoreboard frame (|x| <= 19, y <= 16.55),
+	-- which stands proud of the wall and would hide anything behind it.
+	ON_AIR_LABEL = { size = UDim2.fromScale(0.15, 0.14), position = UDim2.fromScale(0.05, 0.16) }, -- PLACEHOLDER: x +19.2..+28.8
+	CONTROLS_LABEL = { size = UDim2.fromScale(0.4, 0.1), position = UDim2.fromScale(0.3, 0.02) }, -- PLACEHOLDER: centered above the board, y 17.6..19.6
+	CONTROLS_TEXT = "E = GRAB   CLICK = THROW", -- PLACEHOLDER
+	-- A Front-face gui runs from the part's +X edge toward -X (facing the back
+	-- wall, +X is the viewer's left), so the ON AIR label (gui x 0.05..0.20)
+	-- lands at x +19.2..+28.8 and the tally hangs centered over it at x 24.
+	TALLY = { position = Vector3.new(24, 18.2, 18.9), size = Vector3.new(8, 1, 0.4) }, -- PLACEHOLDER
+	TALLY_BLINK = { period = 1.0, maxT = 0.7 }, -- PLACEHOLDER
+
+	BOARD = { position = Vector3.new(0, 9, 18.8), size = Vector3.new(36, 14, 0.6) }, -- PLACEHOLDER: world Y 90..104, 0.1 into the wall
+	BOARD_TITLE = { size = UDim2.fromScale(1, 0.45), position = UDim2.fromScale(0, 0) }, -- PLACEHOLDER
+	BOARD_STATUS = { size = UDim2.fromScale(0.9, 0.35), position = UDim2.fromScale(0.05, 0.5) }, -- PLACEHOLDER
+	BOARD_FRAME = { z = 18.7, bar = 0.5, depth = 0.8, wide = 38, tall = 15, topY = 16.3, bottomY = 1.7, sideX = 18.75 }, -- PLACEHOLDER
+
+	SPAWN = { position = Vector3.new(0, 0.15, 10), size = Vector3.new(12, 0.3, 12) }, -- PLACEHOLDER: HubSpawn
+	SPAWN_STRIP = { offset = 6.05, length = 12.6, width = 0.5, height = 0.25 }, -- PLACEHOLDER: magenta ring straddling the pad edge
+	SPAWN_LIGHT = { brightness = 1.5, range = 18 }, -- PLACEHOLDER
+
+	PAD_CFRAME = CFrame.new(25, 0.3, 11.5), -- PLACEHOLDER: pad X 21..29, clear of the spawn (X +-6) and the side rail
+	PAD_TEXT_COLOR = Color3.fromRGB(8, 10, 20), -- PLACEHOLDER: label on the cyan pad
+
+	GATE = { x = 25, z = 16.5, span = 11.5 }, -- PLACEHOLDER: pillar centers +-span/2; 2 studs in front of the back wall
+	GATE_PILLAR = Vector3.new(1.5, 9, 1.5), -- PLACEHOLDER: world Y 88..97
+	GATE_LINTEL = Vector3.new(13, 1.5, 1.5), -- PLACEHOLDER: center world (25, 97.75, 111.5) = LinkA
+	GATE_NEON = { thickness = 0.3, lintelLength = 11 }, -- PLACEHOLDER: on the pillars' inner faces and under the lintel
+
+	KEY_LIGHT = { x = 16, y = 19, z = 18.4, size = Vector3.new(1.4, 1.4, 2), aim = Vector3.new(0, -1, -1.1) }, -- PLACEHOLDER
+	KEY_SPOT = { angle = 60, brightness = 2.5, range = 45 }, -- PLACEHOLDER
+}
+
+-- Neon trim nothing may rest on, bump into or click: never collidable,
+-- never queried, never touched, no shadow.
+local function trim(props: MapKit.Props): MapKit.Props
+	props.CanCollide = false
+	props.CanQuery = false
+	props.CanTouch = false
+	props.CastShadow = false
+	return props
+end
+
+local function neon(name: string, color: Color3): MapKit.Props
+	return trim({ Name = name, Color = color, Material = Enum.Material.Neon })
+end
+
+local function plastic(name: string, color: Color3): MapKit.Props
+	return { Name = name, Color = color, Material = Enum.Material.SmoothPlastic }
+end
+
+local function glass(name: string): MapKit.Props
+	return {
+		Name = name,
+		Color = Config.MAP.RAIL_GLASS,
+		Material = Enum.Material.Glass,
+		Transparency = Config.RAIL_GLASS_TRANSPARENCY,
+	}
+end
+
+-- Show logo: GothamBlack in the debris magenta with a cyan UIStroke. The
+-- label's own faint dark stroke is turned off so the cyan outline stays clean.
+local function logoText(part: BasePart, face: Enum.NormalId, text: string, strokeThickness: number, size: UDim2, position: UDim2): (SurfaceGui, TextLabel)
+	local gui, label = MapKit.surfaceText(part, face, text, {
+		Size = size,
+		Position = position,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = Config.DEBRIS_COLOR,
+		TextStrokeTransparency = 1,
+	})
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Config.MAP.ELECTRIC_CYAN
+	stroke.Thickness = strokeThickness
+	stroke.Parent = label
+	return gui, label
+end
+
+local function captionProps(): MapKit.Props
+	return { Font = Enum.Font.Gotham, TextColor3 = Config.MAP.ELECTRIC_CYAN }
+end
+
 function Hub.build(parent: Instance): Result
 	local c = Config.ARENA_CENTER
 	local top = c + Config.HUB_OFFSET
 	-- -Z faces the arena, so "front" is the edge overlooking the pit.
 	local hubCFrame = CFrame.lookAt(top, Vector3.new(c.X, top.Y, c.Z))
-	local W, D, H = Config.HUB_SIZE.X, Config.HUB_SIZE.Z, Config.HUB_RAIL_HEIGHT
+	local function h(x: number, y: number, z: number): CFrame
+		return hubCFrame * CFrame.new(x, y, z)
+	end
+
+	local W, floorT, D = Config.HUB_SIZE.X, Config.HUB_SIZE.Y, Config.HUB_SIZE.Z
+	local hw, hd = W / 2, D / 2
+	local railTop = Config.HUB_RAIL_HEIGHT
 
 	local model = MapKit.model("SpawnHub")
 
-	MapKit.block(hubCFrame * CFrame.new(0, -Config.HUB_SIZE.Y / 2, 0), Config.HUB_SIZE, {
-		Name = "HubFloor",
-		Color = Color3.fromRGB(58, 60, 68),
-		Material = Enum.Material.Concrete,
-	}).Parent = model
+	-- Deck and the monolith it stands on, logo on the pit face between two
+	-- pairs of neon lines.
+	MapKit.block(h(0, -floorT / 2, 0), Config.HUB_SIZE, plastic("HubFloor", Config.MAP.PANEL_BLACK)).Parent = model
 
-	MapKit.block(hubCFrame * CFrame.new(0, H / 2, -D / 2 + 0.25), Vector3.new(W, H, 0.5), {
-		Name = "FrontRail",
-		Color = Color3.fromRGB(170, 210, 255),
-		Material = Enum.Material.Glass,
-		Transparency = 0.7,
-	}).Parent = model
-	for _, x in { -W / 2 + 0.25, W / 2 - 0.25 } do
-		MapKit.block(hubCFrame * CFrame.new(x, H / 2, 0), Vector3.new(0.5, H, D), {
-			Name = "SideRail",
-			Color = Color3.fromRGB(80, 82, 92),
-			Material = Enum.Material.Metal,
-		}).Parent = model
+	local monolithH = TUNING.MONOLITH_HEIGHT
+	local monolith = MapKit.block(h(0, -floorT - monolithH / 2, 0), Vector3.new(W, monolithH, D), plastic("Monolith", Config.MAP.VOID_BLACK))
+	monolith.Parent = model
+	local logo = TUNING.MONOLITH_LOGO
+	local logoGui = logoText(monolith, Enum.NormalId.Front, "DEBRIS CLEAR", TUNING.LOGO_STROKE, logo.size, logo.position)
+	logoGui.Brightness = logo.brightness
+
+	local lineT = TUNING.MONOLITH_LINE_THICKNESS
+	for _, y in TUNING.MONOLITH_LINE_YS do
+		MapKit.block(h(0, y, -(hd + lineT / 2)), Vector3.new(W, lineT, lineT), neon("MonolithLine", Config.MAP.GRID_CYAN)).Parent = model
 	end
 
-	local boardHeight = 16
-	local board = MapKit.block(hubCFrame * CFrame.new(0, boardHeight / 2, D / 2 - 0.5), Vector3.new(W, boardHeight, 1), {
-		Name = "StatusBoard",
-		Color = Color3.fromRGB(28, 28, 34),
-		Material = Enum.Material.SmoothPlastic,
-	})
-	board.Parent = model
-	local _, title = MapKit.surfaceText(board, Enum.NormalId.Front, "DEBRIS CLEAR", {
-		Size = UDim2.fromScale(1, 0.45),
-		Position = UDim2.fromScale(0, 0),
-		TextColor3 = Color3.fromRGB(255, 140, 50),
-	})
-	local statusLabel = title:Clone()
-	statusLabel.Name = "Status"
-	statusLabel.Position = UDim2.fromScale(0.05, 0.5)
-	statusLabel.Size = UDim2.fromScale(0.9, 0.35)
-	statusLabel.Font = Enum.Font.GothamBold
-	statusLabel.TextColor3 = Color3.new(1, 1, 1)
-	statusLabel.Text = ""
-	statusLabel.Parent = title.Parent
+	-- Floor frame: a border inset from the edges plus a runway flanking the
+	-- spawn toward the front rail. Bottom flush with the floor top.
+	local strip = TUNING.FRAME_STRIP
+	local frameW, frameD = W - 2 * TUNING.FRAME_INSET, D - 2 * TUNING.FRAME_INSET
+	local function frameLine(cf: CFrame, size: Vector3)
+		MapKit.block(cf, size, neon("FloorFrame", Config.MAP.GRID_CYAN)).Parent = model
+	end
+	for _, sz in { -1, 1 } do
+		frameLine(h(0, strip.height / 2, sz * frameD / 2), Vector3.new(frameW, strip.height, strip.width))
+	end
+	for _, x in { -frameW / 2, frameW / 2, -TUNING.FRAME_RUNWAY_X, TUNING.FRAME_RUNWAY_X } do
+		frameLine(h(x, strip.height / 2, 0), Vector3.new(strip.width, strip.height, frameD))
+	end
 
+	-- Front rail: glass, a matte grey cap, and the cyan line on the cap's OUTER
+	-- face only, so nothing blooms at the bottom of the play view.
+	local rg, cap, rs = TUNING.RAIL_GLASS, TUNING.RAIL_CAP, TUNING.RAIL_STRIP
+	local capY = railTop - cap.height / 2
+	local frontZ = -(hd - rg.thickness / 2)
+	MapKit.block(h(0, rg.height / 2, frontZ), Vector3.new(W, rg.height, rg.thickness), glass("FrontRail")).Parent = model
+	MapKit.block(h(0, capY, frontZ), Vector3.new(W, cap.height, cap.width), plastic("FrontRailCap", Config.MAP.STUDIO_GREY)).Parent = model
+	MapKit.block(
+		h(0, capY, -(hd + cap.width / 2 - rg.thickness / 2 + rs.depth / 2)),
+		Vector3.new(W, rs.height, rs.depth),
+		neon("FrontRailStrip", Config.MAP.ELECTRIC_CYAN)
+	).Parent = model
+
+	-- Side rails with dim cyan caps.
+	for _, sx in { -1, 1 } do
+		local x = sx * (hw - rg.thickness / 2)
+		MapKit.block(h(x, rg.height / 2, 0), Vector3.new(rg.thickness, rg.height, D), glass("SideRail")).Parent = model
+		MapKit.block(h(x, capY, 0), Vector3.new(cap.width, cap.height, D), neon("SideRailCap", Config.MAP.GRID_CYAN)).Parent = model
+	end
+
+	-- Back wall with ON AIR (viewer's left) and the controls caption centered
+	-- above the scoreboard.
+	local wall = TUNING.BACK_WALL
+	local wallZ = hd - wall.thickness / 2
+	local backWall = MapKit.block(h(0, wall.height / 2, wallZ), Vector3.new(W, wall.height, wall.thickness), plastic("BackWall", Config.MAP.DEEP_NAVY))
+	backWall.Parent = model
+	local onAirLabel = TUNING.ON_AIR_LABEL
+	local wallGui, onAir = MapKit.surfaceText(backWall, Enum.NormalId.Front, "ON AIR", {
+		Name = "OnAir",
+		Size = onAirLabel.size,
+		Position = onAirLabel.position,
+		TextColor3 = Config.DEBRIS_COLOR,
+	})
+	local controls = onAir:Clone()
+	controls.Name = "Controls"
+	controls.Text = TUNING.CONTROLS_TEXT
+	controls.Size = TUNING.CONTROLS_LABEL.size
+	controls.Position = TUNING.CONTROLS_LABEL.position
+	controls.Font = Enum.Font.Gotham
+	controls.TextColor3 = Config.MAP.ELECTRIC_CYAN
+	controls.Parent = wallGui
+
+	-- Wall trim: dim strip along the top, bright posts at both ends (lit).
+	local topTrim = TUNING.WALL_TOP_TRIM
+	MapKit.block(h(0, wall.height + topTrim.height / 2, wallZ), Vector3.new(W, topTrim.height, topTrim.depth), neon("BackWallTrim", Config.MAP.GRID_CYAN)).Parent = model
+	local post = TUNING.WALL_POST
+	for _, sx in { -1, 1 } do
+		local vertical = MapKit.block(h(sx * (hw - post.inset), wall.height / 2, post.z), post.size, neon("BackWallTrim", Config.MAP.ELECTRIC_CYAN))
+		vertical.Parent = model
+		MapKit.pointLight(vertical, Config.MAP.ELECTRIC_CYAN, TUNING.WALL_POST_LIGHT.brightness, TUNING.WALL_POST_LIGHT.range)
+	end
+
+	-- Blinking tally over the ON AIR text.
+	local tally = MapKit.block(h(TUNING.TALLY.position.X, TUNING.TALLY.position.Y, TUNING.TALLY.position.Z), TUNING.TALLY.size, neon("OnAirTally", Config.DEBRIS_COLOR))
+	tally.Parent = model
+	MapKit.blink(tally, TUNING.TALLY_BLINK.period, TUNING.TALLY_BLINK.maxT)
+
+	-- Scoreboard: logo title over the "Status" line the server writes into.
+	local bp = TUNING.BOARD.position
+	local board = MapKit.block(h(bp.X, bp.Y, bp.Z), TUNING.BOARD.size, plastic("StatusBoard", Config.MAP.BOARD_NAVY))
+	board.Parent = model
+	local boardGui = logoText(board, Enum.NormalId.Front, "DEBRIS CLEAR", TUNING.BOARD_LOGO_STROKE, TUNING.BOARD_TITLE.size, TUNING.BOARD_TITLE.position)
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.Name = "Status"
+	statusLabel.BackgroundTransparency = 1
+	statusLabel.Size = TUNING.BOARD_STATUS.size
+	statusLabel.Position = TUNING.BOARD_STATUS.position
+	statusLabel.Font = Enum.Font.GothamBold
+	statusLabel.TextScaled = true
+	statusLabel.TextColor3 = Color3.new(1, 1, 1)
+	statusLabel.TextStrokeTransparency = 0.6
+	statusLabel.Text = ""
+	statusLabel.Parent = boardGui
+
+	local bf = TUNING.BOARD_FRAME
+	local function frameBar(x: number, y: number, size: Vector3)
+		MapKit.block(h(x, y, bf.z), size, neon("BoardFrame", Config.MAP.ELECTRIC_CYAN)).Parent = model
+	end
+	frameBar(0, bf.topY, Vector3.new(bf.wide, bf.bar, bf.depth))
+	frameBar(0, bf.bottomY, Vector3.new(bf.wide, bf.bar, bf.depth))
+	frameBar(-bf.sideX, bp.Y, Vector3.new(bf.bar, bf.tall, bf.depth))
+	frameBar(bf.sideX, bp.Y, Vector3.new(bf.bar, bf.tall, bf.depth))
+
+	-- Spawn pad ringed in magenta: the only enabled spawn in the place (Arena
+	-- disables every other SpawnLocation before building the hub).
+	local sp = TUNING.SPAWN
 	local spawn = Instance.new("SpawnLocation")
 	spawn.Name = "HubSpawn"
 	spawn.Anchored = true
 	spawn.Neutral = true
 	spawn.Duration = 0
-	spawn.Size = Vector3.new(10, 1, 10)
-	spawn.Color = Color3.fromRGB(255, 140, 50)
+	spawn.Enabled = true
+	spawn.TopSurface = Enum.SurfaceType.Smooth
+	spawn.BottomSurface = Enum.SurfaceType.Smooth
+	spawn.Size = sp.size
+	spawn.Color = Config.MAP.PEDESTAL_BLACK
 	spawn.Material = Enum.Material.SmoothPlastic
-	spawn.CFrame = hubCFrame * CFrame.new(0, 0.5, D / 4)
+	spawn.CFrame = h(sp.position.X, sp.position.Y, sp.position.Z)
 	spawn.Parent = model
+	MapKit.pointLight(spawn, Config.DEBRIS_COLOR, TUNING.SPAWN_LIGHT.brightness, TUNING.SPAWN_LIGHT.range)
 
-	MapKit.teleportPad(model, hubCFrame * CFrame.new(W / 2 - 8, 0.3, D / 4), "SHOWCASE", "Showcase", Color3.fromRGB(90, 200, 255))
+	local ss = TUNING.SPAWN_STRIP
+	for _, s in { -1, 1 } do
+		MapKit.block(
+			h(sp.position.X, ss.height / 2, sp.position.Z + s * ss.offset),
+			Vector3.new(ss.length, ss.height, ss.width),
+			neon("SpawnStrip", Config.DEBRIS_COLOR)
+		).Parent = model
+		MapKit.block(
+			h(sp.position.X + s * ss.offset, ss.height / 2, sp.position.Z),
+			Vector3.new(ss.width, ss.height, ss.length),
+			neon("SpawnStrip", Config.DEBRIS_COLOR)
+		).Parent = model
+	end
+
+	-- SHOWCASE pad in front of its gate. The helper's label is white-ish;
+	-- darken it against the cyan neon.
+	local pad = MapKit.teleportPad(model, hubCFrame * TUNING.PAD_CFRAME, "SHOWCASE", "Showcase", Config.MAP.ELECTRIC_CYAN)
+	local padText = pad:FindFirstChild("Text")
+	local padLabel = if padText then padText:FindFirstChild("Label") else nil
+	if padLabel and padLabel:IsA("TextLabel") then
+		padLabel.TextColor3 = TUNING.PAD_TEXT_COLOR
+	end
+
+	-- Gate: two black pillars, a lintel captioned SHOWCASE, cyan neon on the
+	-- inner faces and under the lintel. LinkA at the lintel center is where
+	-- the showcase's return-gate LinkBeam ends.
+	local gate, pillar, lintel, gn = TUNING.GATE, TUNING.GATE_PILLAR, TUNING.GATE_LINTEL, TUNING.GATE_NEON
+	for _, s in { -1, 1 } do
+		local px = gate.x + s * gate.span / 2
+		MapKit.block(h(px, pillar.Y / 2, gate.z), pillar, plastic("GatePillar", Config.MAP.VOID_BLACK)).Parent = model
+		-- Inner face of the pillar, half the neon thickness proud.
+		local nx = px - s * (pillar.X / 2 + gn.thickness / 2)
+		MapKit.block(h(nx, pillar.Y / 2, gate.z), Vector3.new(gn.thickness, pillar.Y, gn.thickness), neon("GateNeon", Config.MAP.ELECTRIC_CYAN)).Parent = model
+	end
+	local lintelPart = MapKit.block(h(gate.x, pillar.Y + lintel.Y / 2, gate.z), lintel, plastic("GateLintel", Config.MAP.VOID_BLACK))
+	lintelPart.Parent = model
+	MapKit.surfaceText(lintelPart, Enum.NormalId.Front, "SHOWCASE", captionProps())
+	local linkA = Instance.new("Attachment")
+	linkA.Name = "LinkA"
+	linkA.Parent = lintelPart
+	MapKit.block(
+		h(gate.x, pillar.Y - gn.thickness / 2, gate.z),
+		Vector3.new(gn.lintelLength, gn.thickness, gn.thickness),
+		neon("GateNeon", Config.MAP.ELECTRIC_CYAN)
+	).Parent = model
+
+	-- Two white key spots high on the back wall, looking down across the floor.
+	local key = TUNING.KEY_LIGHT
+	local aim = hubCFrame:VectorToWorldSpace(key.aim)
+	for _, sx in { -1, 1 } do
+		local pos = h(sx * key.x, key.y, key.z).Position
+		local fixture = MapKit.block(CFrame.lookAt(pos, pos + aim), key.size, plastic("KeyLight", Config.MAP.FIXTURE_GREY))
+		fixture.Parent = model
+		MapKit.spotLight(fixture, Enum.NormalId.Front, Config.MAP.KEY_WHITE, TUNING.KEY_SPOT.angle, TUNING.KEY_SPOT.brightness, TUNING.KEY_SPOT.range)
+	end
 
 	model.Parent = parent
 	return { spawn = spawn, statusLabel = statusLabel, floorY = top.Y }
@@ -2256,11 +2365,122 @@ _Repo file: `src/server/Map/Lighting.luau`_
 
 ```lua
 --!strict
--- Sky, atmosphere and post-processing. Interim: leave Studio defaults.
+-- Lighting service settings for the NEON PIT set: a midnight sky, violet
+-- ambient so rivals never turn into silhouettes, a violet Atmosphere for
+-- depth, and post-processing that lets only Neon and lava bloom. No parts.
+--
+-- Lighting.Technology cannot be set from a script: set it to Future by hand
+-- in Studio (ShadowMap is an acceptable fallback; the rig spots still light
+-- the decks, only the glossy specular pools on the black surfaces are lost).
+-- No Sky instance is created (a skybox needs asset ids); the default
+-- procedural night sky with stars and a moon is the intended look.
+
+local LightingService = game:GetService("Lighting")
 
 local Lighting = {}
 
-function Lighting.apply() end
+type Props = { [string]: any }
+
+local TUNING = {
+	-- Lighting service properties (brief 6.1).
+	LIGHTING = { -- PLACEHOLDER
+		ClockTime = 1.5, -- midnight; default procedural night sky with stars
+		GeographicLatitude = 41,
+		Brightness = 0.6,
+		Ambient = Color3.fromRGB(30, 22, 55),
+		OutdoorAmbient = Color3.fromRGB(56, 44, 96), -- raised so rivals read on ShadowMap too
+		ColorShift_Top = Color3.fromRGB(80, 40, 140),
+		ColorShift_Bottom = Color3.fromRGB(20, 10, 40),
+		EnvironmentDiffuseScale = 0.25,
+		EnvironmentSpecularScale = 0.75,
+		GlobalShadows = true,
+		ShadowSoftness = 0.2,
+		ExposureCompensation = 0.15,
+		FogEnd = 100000, -- fog off; the Atmosphere handles depth
+	} :: Props,
+	-- Violet horizon glow; the backdrop at 140 studs stays crisp.
+	ATMOSPHERE_NAME = "DebrisClearAtmosphere",
+	ATMOSPHERE = { -- PLACEHOLDER
+		Density = 0.3,
+		Offset = 0.2,
+		Color = Color3.fromRGB(120, 40, 170),
+		Decay = Color3.fromRGB(30, 10, 70),
+		Glare = 0.3,
+		Haze = 2.2,
+	} :: Props,
+	-- Threshold 1.0: only Neon and the lava bloom; the dim LavaBase never
+	-- whites out. If the lava core still blows out at graphics 10, darken
+	-- LavaBase first, then raise Threshold to 1.05.
+	BLOOM_NAME = "DebrisClearBloom",
+	BLOOM = { -- PLACEHOLDER
+		Enabled = true,
+		Intensity = 0.7,
+		Size = 28,
+		Threshold = 1.0,
+	} :: Props,
+	COLOR_CORRECTION_NAME = "DebrisClearColorCorrection",
+	COLOR_CORRECTION = { -- PLACEHOLDER
+		Enabled = true,
+		Brightness = 0.02,
+		Contrast = 0.15,
+		Saturation = 0.25,
+		TintColor = Color3.fromRGB(250, 240, 255),
+	} :: Props,
+	-- The brief wants no SunRays and no DepthOfField. Any other post effect
+	-- already sitting in Lighting (Studio's defaults, an older build) is
+	-- switched off rather than destroyed, so the look is the same every run.
+	DISABLE_OTHER_POST_EFFECTS = true, -- PLACEHOLDER
+}
+
+local function apply(instance: Instance, props: Props)
+	for k, v in props do
+		(instance :: any)[k] = v
+	end
+end
+
+-- Child of Lighting with this name and class, created if missing (so apply()
+-- can run again in Studio without stacking duplicate effects).
+local function findOrCreate(className: string, name: string): Instance
+	local existing = LightingService:FindFirstChild(name)
+	if existing and existing.ClassName == className then
+		return existing
+	end
+	local instance = Instance.new(className)
+	instance.Name = name
+	instance.Parent = LightingService
+	return instance
+end
+
+function Lighting.apply()
+	apply(LightingService, TUNING.LIGHTING)
+
+	-- Roblox honours only one Atmosphere under Lighting, and Studio templates
+	-- ship one named "Atmosphere": adopt the first one found (whatever its
+	-- name) and remove any others so ours is the one that renders.
+	local atmosphere = LightingService:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
+	atmosphere.Name = TUNING.ATMOSPHERE_NAME
+	atmosphere.Parent = LightingService
+	for _, child in LightingService:GetChildren() do
+		if child:IsA("Atmosphere") and child ~= atmosphere then
+			child:Destroy()
+		end
+	end
+	apply(atmosphere, TUNING.ATMOSPHERE)
+
+	local bloom = findOrCreate("BloomEffect", TUNING.BLOOM_NAME)
+	apply(bloom, TUNING.BLOOM)
+
+	local colorCorrection = findOrCreate("ColorCorrectionEffect", TUNING.COLOR_CORRECTION_NAME)
+	apply(colorCorrection, TUNING.COLOR_CORRECTION)
+
+	if TUNING.DISABLE_OTHER_POST_EFFECTS then
+		for _, child in LightingService:GetChildren() do
+			if child:IsA("PostEffect") and child ~= bloom and child ~= colorCorrection then
+				child.Enabled = false
+			end
+		end
+	end
+end
 
 return Lighting
 ```
@@ -2277,10 +2497,12 @@ _Repo file: `src/server/Map/MapKit.luau`_
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
 local DecahedronMesh = require(Shared.DecahedronMesh)
+local HexGeometry = require(Shared.HexGeometry)
 
 local MapKit = {}
 
@@ -2457,8 +2679,8 @@ function MapKit.teleportPad(parent: Instance, cf: CFrame, label: string, destina
 	local base = MapKit.part({
 		Name = "PadBase",
 		Size = Vector3.new(9.5, 0.4, 9.5),
-		Color = Color3.fromRGB(35, 35, 42),
-		Material = Enum.Material.Metal,
+		Color = Config.MAP.PAD_BASE,
+		Material = Enum.Material.SmoothPlastic,
 		CanCollide = false,
 		CanQuery = false,
 	})
@@ -2490,6 +2712,7 @@ function MapKit.showcaseDebris(parent: Instance, cf: CFrame, scale: number?): Ba
 	else
 		local anchor = MapKit.part({ Transparency = 1, Size = Vector3.one * size })
 		anchor:SetAttribute("Visual", "Client")
+		anchor:SetAttribute("VisualScale", scale or 1) -- DebrisVisuals scales its d10 by this
 		CollectionService:AddTag(anchor, MapKit.DEBRIS_TAG)
 		part = anchor
 	end
@@ -2530,6 +2753,264 @@ function MapKit.bob(part: BasePart, amplitude: number, period: number)
 	end)
 end
 
+-- Spin and bob in one Heartbeat (spin() and bob() each overwrite CFrame, so
+-- they can't be combined).
+function MapKit.spinBob(part: BasePart, degreesPerSecond: number, amplitude: number, period: number)
+	local origin = part.CFrame
+	local angle, t = 0, 0
+	RunService.Heartbeat:Connect(function(dt)
+		if not part.Parent then
+			return
+		end
+		angle += math.rad(degreesPerSecond) * dt
+		t += dt
+		local lift = math.sin(t * 2 * math.pi / period) * amplitude
+		part.CFrame = CFrame.new(origin.Position + Vector3.new(0, lift, 0)) * CFrame.Angles(0, angle, 0) * origin.Rotation
+	end)
+end
+
+-- Endless transparency pulse (tally lights, beacons). Runs from the part's
+-- current Transparency up to maxT and back every `period` seconds.
+function MapKit.blink(part: BasePart, period: number, maxT: number): Tween
+	local info = TweenInfo.new(period / 2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	local tween = TweenService:Create(part, info, { Transparency = maxT })
+	tween:Play()
+	return tween
+end
+
+-- SpotLight out of one face of a part. Shadows are always off (cost).
+function MapKit.spotLight(part: BasePart, face: Enum.NormalId, color: Color3, angle: number, brightness: number, range: number): SpotLight
+	local light = Instance.new("SpotLight")
+	light.Face = face
+	light.Color = color
+	light.Angle = angle
+	light.Brightness = brightness
+	light.Range = range
+	light.Shadows = false
+	light.Parent = part
+	return light
+end
+
+-- Vertical searchlight beam rising `height` studs from the part's center.
+-- Call after the part is parented (Attachment1 uses a world position).
+function MapKit.beamUp(part: BasePart, height: number, width0: number, width1: number, color: Color3): Beam
+	local a0 = Instance.new("Attachment")
+	a0.Name = "BeamBase"
+	a0.Parent = part
+	local a1 = Instance.new("Attachment")
+	a1.Name = "BeamTop"
+	a1.Parent = part
+	a1.WorldPosition = part.Position + Vector3.new(0, height, 0)
+
+	local beam = Instance.new("Beam")
+	beam.Attachment0 = a0
+	beam.Attachment1 = a1
+	beam.Color = ColorSequence.new(color)
+	beam.Width0 = width0
+	beam.Width1 = width1
+	beam.Transparency = NumberSequence.new(0.6, 1)
+	beam.LightEmission = 1
+	beam.LightInfluence = 0
+	beam.Brightness = 2
+	beam.FaceCamera = true
+	beam.Segments = 1
+	beam.Parent = part
+	return beam
+end
+
+---------------------------------------------------------------------------
+-- Hex platform pieces (shared by Arena and the showcase exhibit)
+---------------------------------------------------------------------------
+
+-- Two right-angle WedgeParts that fill triangle (a, b, c), `thickness` thick,
+-- centered on the triangle's plane.
+local function triangleWedges(a: Vector3, b: Vector3, c: Vector3, thickness: number, props: Props): (BasePart, BasePart)
+	local ab, ac, bc = b - a, c - a, c - b
+	local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
+	-- Rotate the labels so the longest edge is b -> c.
+	if abd > acd and abd > bcd then
+		c, a = a, c
+	elseif acd > bcd and acd > abd then
+		a, b = b, a
+	end
+	ab, ac, bc = b - a, c - a, c - b
+
+	local right = ac:Cross(ab).Unit
+	local up = bc:Cross(right).Unit
+	local back = bc.Unit
+	local height = math.abs(ab:Dot(up))
+
+	local w1 = MapKit.wedge(props)
+	w1.Size = Vector3.new(thickness, height, math.abs(ab:Dot(back)))
+	w1.CFrame = CFrame.fromMatrix((a + b) / 2, right, up, back)
+
+	local w2 = MapKit.wedge(props)
+	w2.Size = Vector3.new(thickness, height, math.abs(ac:Dot(back)))
+	w2.CFrame = CFrame.fromMatrix((a + c) / 2, -right, up, -back)
+	return w1, w2
+end
+
+-- Flat regular hexagon (circumradius `radius`, corners on local +-X of
+-- `topCFrame`, whose position is the center of the TOP surface) = a center
+-- block plus two end triangles (4 wedges). Parts are parented to `parent`.
+-- Returns the center block and every part.
+function MapKit.hexDeck(topCFrame: CFrame, radius: number, thickness: number, parent: Instance, props: Props): (Part, { BasePart })
+	local a = HexGeometry.apothem(radius)
+	local mid = topCFrame * CFrame.new(0, -thickness / 2, 0)
+
+	local block = MapKit.part(props)
+	block.Size = Vector3.new(radius, thickness, 2 * a)
+	block.CFrame = mid
+	block.Parent = parent
+	local parts: { BasePart } = { block }
+
+	local corners = HexGeometry.corners(radius)
+	local function world(i: number): Vector3
+		local v = corners[i + 1]
+		return mid:PointToWorldSpace(Vector3.new(v.X, 0, v.Y))
+	end
+	for _, tri in { { 5, 0, 1 }, { 2, 3, 4 } } do
+		local w1, w2 = triangleWedges(world(tri[1]), world(tri[2]), world(tri[3]), thickness, props)
+		w1.Parent = parent
+		w2.Parent = parent
+		table.insert(parts, w1)
+		table.insert(parts, w2)
+	end
+	return block, parts
+end
+
+-- The ring is drawn in two clipped halves. Each half holds a full ring whose
+-- UIGradient is opaque on one side of a line through the center. Rotating
+-- that gradient sweeps the visible arc (see client RingMeterController).
+local function ringElement(pixelSize: number, color: Color3, zIndex: number): (GuiObject, UIGradient)
+	local gradient = Instance.new("UIGradient")
+	gradient.Name = "Sweep"
+
+	if Config.RING_IMAGE_ID ~= "" then
+		local image = Instance.new("ImageLabel")
+		image.BackgroundTransparency = 1
+		image.Image = Config.RING_IMAGE_ID
+		image.ImageColor3 = color
+		image.ZIndex = zIndex
+		gradient.Parent = image
+		return image, gradient
+	end
+
+	local stroke = math.floor(pixelSize * Config.RING_THICKNESS)
+	local frame = Instance.new("Frame")
+	frame.BackgroundTransparency = 1
+	frame.ZIndex = zIndex
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.5, 0)
+	corner.Parent = frame
+	local uiStroke = Instance.new("UIStroke")
+	uiStroke.Thickness = stroke
+	uiStroke.Color = color
+	uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	uiStroke.Parent = frame
+	gradient.Parent = uiStroke
+	return frame, gradient
+end
+
+-- Ring meter SurfaceGui on an invisible "Meter" part just above the deck.
+-- The GUI tree (Meter > RingMeter > Root > Left/Right > Fill + Sweep, Value,
+-- Owner) is what RingMeterController binds to; keep it intact.
+function MapKit.ringMeter(topCFrame: CFrame, radius: number, parent: Instance): Part
+	local a = HexGeometry.apothem(radius)
+	local side = 2 * a * 0.92
+
+	local meterPart = MapKit.part({
+		Name = "Meter",
+		Size = Vector3.new(side, 0.1, side),
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+	})
+	meterPart.CFrame = topCFrame * CFrame.new(0, 0.06, 0)
+	meterPart.Parent = parent
+
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = "RingMeter"
+	gui.Face = Enum.NormalId.Top
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = Config.RING_PIXELS_PER_STUD
+	gui.LightInfluence = 0
+	gui.Brightness = 1.5
+	gui.Parent = meterPart
+
+	local pixelSize = side * Config.RING_PIXELS_PER_STUD
+	local strokePx = if Config.RING_IMAGE_ID == "" then math.floor(pixelSize * Config.RING_THICKNESS) else 0
+
+	local root = Instance.new("Frame")
+	root.Name = "Root"
+	root.BackgroundTransparency = 1
+	root.Size = UDim2.fromScale(1, 1)
+	root.Parent = gui
+
+	-- Dim full ring behind the fill.
+	local track = ringElement(pixelSize, Color3.fromRGB(20, 22, 34), 1)
+	track.Name = "Track"
+	track.Size = UDim2.new(1, -2 * strokePx, 1, -2 * strokePx)
+	track.Position = UDim2.fromOffset(strokePx, strokePx)
+	track.Parent = root
+	local trackGradient = track:FindFirstChild("Sweep", true)
+	if trackGradient then
+		trackGradient:Destroy()
+	end
+
+	local halves = {
+		{ name = "Left", clipX = 0, ringX = 0 },
+		{ name = "Right", clipX = 0.5, ringX = -1 },
+	}
+	for _, h in halves do
+		local clip = Instance.new("Frame")
+		clip.Name = h.name
+		clip.BackgroundTransparency = 1
+		clip.ClipsDescendants = true
+		clip.Size = UDim2.fromScale(0.5, 1)
+		clip.Position = UDim2.fromScale(h.clipX, 0)
+		clip.Parent = root
+
+		local fill, gradient = ringElement(pixelSize, Config.RING_COLOR_SAFE, 2)
+		fill.Name = "Fill"
+		fill.Size = UDim2.new(2, -2 * strokePx, 1, -2 * strokePx)
+		fill.Position = UDim2.new(h.ringX, strokePx, 0, strokePx)
+		fill.Parent = clip
+		gradient.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(0.4999, 0),
+			NumberSequenceKeypoint.new(0.5, 1),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		-- Full ring at spawn: Left = 360 degrees, Right = 180 degrees.
+		gradient.Rotation = if h.name == "Left" then 360 else 180
+	end
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Value"
+	label.BackgroundTransparency = 1
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Position = UDim2.fromScale(0.5, 0.5)
+	label.Size = UDim2.fromScale(0.5, 0.18)
+	label.Font = Enum.Font.GothamBlack
+	label.TextScaled = true
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextStrokeTransparency = 0.4
+	label.Text = `0 / {Config.PLATFORM_CAPACITY}`
+	label.ZIndex = 3
+	label.Parent = root
+
+	local owner = label:Clone()
+	owner.Name = "Owner"
+	owner.Position = UDim2.fromScale(0.5, 0.66)
+	owner.Size = UDim2.fromScale(0.45, 0.09)
+	owner.Font = Enum.Font.GothamBold
+	owner.Text = ""
+	owner.Parent = root
+	return meterPart
+end
+
 return MapKit
 ```
 
@@ -2539,7 +3020,13 @@ _Repo file: `src/server/Map/Pit.luau`_
 
 ```lua
 --!strict
--- The central pit: what players see below the platforms. Interim version.
+-- The crater under the podiums: a lava lake with a hot core and heart, cooled
+-- crust plates, the visual-only piston sleeves, an octagonal black crater wall
+-- rising to the glossy stage at Y 36, a 12-sided backdrop skyline carrying the
+-- show logo, and two audience banks flashing cameras from the wings.
+-- 109 parts. LavaBase is the pit floor and the only collidable part inside the
+-- crater; the other lava layers, crust, sleeves, every neon trim and the
+-- audience tiers are CanCollide/CanQuery false so nothing rests above the kill line.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -2549,23 +3036,402 @@ local MapKit = require(script.Parent.MapKit)
 
 local Pit = {}
 
-function Pit.build(parent: Instance)
-	local c = Config.ARENA_CENTER
-	local model = MapKit.model("Pit", parent)
-	local floor = MapKit.block(
-		CFrame.new(c.X, c.Y - Config.PIT_DEPTH - 1, c.Z),
-		Vector3.new(4 * Config.ARENA_RADIUS + 60, 2, 4 * Config.ARENA_RADIUS + 60),
-		{ Name = "PitFloor", Color = Color3.fromRGB(25, 20, 20), Material = Enum.Material.CorrodedMetal }
-	)
-	floor.Parent = model
-	local glow = MapKit.disc(CFrame.new(c.X, c.Y - Config.PIT_DEPTH + 0.1, c.Z), Config.ARENA_RADIUS * 0.6, 0.2, {
-		Name = "PitGlow",
-		Color = Color3.fromRGB(255, 90, 30),
-		Material = Enum.Material.Neon,
+local TUNING = {
+	-- Lava. Heights are offsets above the pit floor (ARENA_CENTER.Y - PIT_DEPTH = 15).
+	LAVA_BASE_RADIUS = 100, -- PLACEHOLDER: runs on under the stage, out of sight
+	LAVA_BASE_THICKNESS = 2, -- PLACEHOLDER
+	LAVA_CORE_RADIUS = 44, -- PLACEHOLDER: bright core under the podiums
+	LAVA_HEART_RADIUS = 12, -- PLACEHOLDER: where the PIT CAM spot pools
+	HOT_SPOT_RADIUS = 14, -- PLACEHOLDER
+	HOT_SPOTS = { Vector2.new(30, -18), Vector2.new(-26, 28) }, -- PLACEHOLDER: XZ centers
+	EMBER_RATE = 15, -- PLACEHOLDER: embers per second rising off the core (2-4 s lifetime keeps ~45 aloft)
+	-- Crust plates floating on the core: {x, z, yawDeg, sizeX, sizeZ}. Every plate
+	-- clears the sleeves by at least a stud and stays inside the crater (r < 67.8).
+	CRUST_THICKNESS = 0.4, -- PLACEHOLDER
+	CRUST_PLATES = { -- PLACEHOLDER
+		{ 4, -10, 15, 16, 11 },
+		{ -33, 26, 70, 12, 9 },
+		{ 33, 30, 40, 10, 14 },
+		{ -29, -34, 110, 18, 8 },
+		{ 33, -29, 30, 9, 9 },
+		{ -36, 12, 160, 14, 10 },
+		{ 4, 36, 5, 12, 12 },
+		{ -6, -38, 80, 16, 9 },
+		{ 44, 30, 125, 11, 7 },
+		{ -48, -30, 20, 13, 10 },
+		{ 46, -36, 95, 15, 9 },
+		{ -46, 34, 50, 10, 12 },
+		{ 18, 54, 140, 9, 6 },
+		{ -24, -54, 35, 12, 8 },
+	},
+	-- Piston sleeve and heat ring at the foot of each rod.
+	SLEEVE_RADIUS = 5.5, -- PLACEHOLDER
+	SLEEVE_HEIGHT = 4.2, -- PLACEHOLDER: top (Y 19.4) sits 0.1 under the crushed deck's under-disc
+	HEAT_RING_RADIUS = 6.5, -- PLACEHOLDER
+	-- Crater wall and stage.
+	STAGE_TOP = 36, -- PLACEHOLDER: world Y of the stage surface
+	STAGE_HOLE = 68, -- PLACEHOLDER: apothem of the octagonal hole; the wall stands 0.2 inside it
+	STAGE_REACH = 220, -- PLACEHOLDER: stage half-width
+	WALL_THICKNESS = 1.5, -- PLACEHOLDER
+	SIDE_LENGTH = 56.8, -- PLACEHOLDER: wall and rim-strip block length (octagon side is 56.2 inside, 57.4 outside)
+	RIM_POST_HEIGHT = 8, -- PLACEHOLDER
+	-- Backdrop.
+	BACKDROP_APOTHEM = 140, -- PLACEHOLDER: inner face of the 12-gon
+	BACKDROP_HEIGHTS = { 46, 40 }, -- PLACEHOLDER: tall and short panels alternate
+	PANEL_LENGTH = 75.6, -- PLACEHOLDER: 12-gon side is 75.0 inside, 76.1 outside
+	LOGO_PANELS = { [9] = "DEBRIS", [11] = "CLEAR" }, -- panel index (1 = angle 0, +30 deg each): left and right of T8 from the hub
+	LOGO_PIXELS_PER_STUD = 4, -- PLACEHOLDER: low so TextScaled's 100 px ceiling still fills the panel
+	-- Audience banks.
+	AUDIENCE_TIERS = 6, -- PLACEHOLDER
+	AUDIENCE_INNER_X = 101, -- PLACEHOLDER: center X of the lowest tier (tiers step out 6 per row)
+	AUDIENCE_LENGTH = 80, -- PLACEHOLDER
+	FLASH_CENTER = Vector2.new(116, 57), -- PLACEHOLDER: (X, Y) of the flash slab, 3.5 above the treads
+	FLASH_RATE = 1.2, -- PLACEHOLDER: camera pops per second per bank
+}
+
+local SEAT_LIGHT = Color3.fromRGB(26, 26, 40)
+local SEAT_DARK = Color3.fromRGB(12, 12, 20)
+local POST_LIGHT = Color3.fromRGB(0, 200, 255)
+
+-- Props for a set piece (collidable; all of these sit below the kill line).
+local function solid(name: string, color: Color3): MapKit.Props
+	return { Name = name, Color = color, Material = Enum.Material.SmoothPlastic }
+end
+
+-- Props for a part nothing may rest on or ray-hit: lava layers, crust,
+-- sleeves, neon trim, audience tiers.
+local function ghost(name: string, color: Color3, material: Enum.Material): MapKit.Props
+	return {
+		Name = name,
+		Color = color,
+		Material = material,
 		CanCollide = false,
 		CanQuery = false,
+		CanTouch = false,
+		CastShadow = material ~= Enum.Material.Neon,
+	}
+end
+
+-- Discs are cylinders rotated 90 degrees about Z, so their local +X (Right)
+-- is world up; emitters on them must emit out of Right, not Top.
+local function embers(part: BasePart, rate: number): ParticleEmitter
+	return MapKit.emitter(part, {
+		Name = "Embers",
+		Color = ColorSequence.new(Color3.fromRGB(255, 140, 50), Color3.fromRGB(255, 40, 10)),
+		Size = NumberSequence.new(0.25, 0.7),
+		Lifetime = NumberRange.new(2, 4),
+		Speed = NumberRange.new(5, 10),
+		Rate = rate,
+		SpreadAngle = Vector2.new(12, 12),
+		Acceleration = Vector3.new(0, 1.5, 0),
+		LightEmission = 1,
+		LightInfluence = 0,
+		Transparency = NumberSequence.new(0.1, 1),
+		EmissionDirection = Enum.NormalId.Right,
+		ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume,
 	})
-	glow.Parent = model
+end
+
+local function haze(part: BasePart): ParticleEmitter
+	return MapKit.emitter(part, {
+		Name = "Haze",
+		Color = ColorSequence.new(Color3.fromRGB(140, 30, 12)),
+		Size = NumberSequence.new(10, 16),
+		Transparency = NumberSequence.new(0.88, 1),
+		Lifetime = NumberRange.new(5, 7),
+		Speed = NumberRange.new(1.5),
+		Rate = 3,
+		LightEmission = 0.3,
+		EmissionDirection = Enum.NormalId.Right,
+	})
+end
+
+-- Random white pops across the slab: an audience taking pictures.
+local function cameraFlash(part: BasePart): ParticleEmitter
+	return MapKit.emitter(part, {
+		Name = "CameraFlash",
+		Shape = Enum.ParticleEmitterShape.Box,
+		ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume,
+		Rate = TUNING.FLASH_RATE,
+		Lifetime = NumberRange.new(0.12),
+		Speed = NumberRange.new(0),
+		Size = NumberSequence.new(2.2),
+		Color = ColorSequence.new(Color3.new(1, 1, 1)),
+		Transparency = NumberSequence.new(0, 1),
+		LightEmission = 1,
+		LightInfluence = 0,
+		Brightness = 3,
+	})
+end
+
+-- Show logo on a backdrop panel: magenta GothamBlack with a cyan outline.
+local function logoText(panel: BasePart, text: string)
+	local gui, label = MapKit.surfaceText(panel, Enum.NormalId.Front, text, {
+		Size = UDim2.fromScale(0.9, 0.5),
+		Position = UDim2.fromScale(0.05, 0.05),
+		TextColor3 = Config.DEBRIS_COLOR,
+		TextStrokeTransparency = 1,
+	})
+	gui.PixelsPerStud = TUNING.LOGO_PIXELS_PER_STUD
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Config.MAP.ELECTRIC_CYAN
+	stroke.Thickness = 4
+	stroke.Parent = label
+end
+
+-- Zero-part seat rows: ten alternating shade blocks down each tier's tread.
+local function seatRows(tier: BasePart)
+	local keypoints = {}
+	for k = 0, 9 do
+		local shade = if k % 2 == 0 then SEAT_LIGHT else SEAT_DARK
+		table.insert(keypoints, ColorSequenceKeypoint.new(k / 10, shade))
+		-- Hard edge just before the next block; a sequence has to end at 1.
+		table.insert(keypoints, ColorSequenceKeypoint.new(if k == 9 then 1 else (k + 1) / 10 - 0.0001, shade))
+	end
+
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = "Seats"
+	gui.Face = Enum.NormalId.Top
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 4
+	gui.LightInfluence = 1
+	gui.Parent = tier
+
+	-- White base so the gradient's colors show exactly (UIGradient multiplies).
+	local frame = Instance.new("Frame")
+	frame.BackgroundColor3 = Color3.new(1, 1, 1)
+	frame.BorderSizePixel = 0
+	frame.Size = UDim2.fromScale(1, 1)
+	frame.Parent = gui
+
+	local gradient = Instance.new("UIGradient")
+	gradient.Rotation = 90
+	gradient.Color = ColorSequence.new(keypoints)
+	gradient.Parent = frame
+end
+
+-- Deck centers, laid out exactly as Arena.buildPlatform does.
+local function platformCenters(): { Vector3 }
+	local centers = {}
+	for slot = 1, Config.MAX_PLAYERS do
+		local a = math.rad(45 + 90 * (slot - 1))
+		table.insert(centers, Config.ARENA_CENTER + Vector3.new(math.cos(a), 0, math.sin(a)) * Config.ARENA_RADIUS)
+	end
+	return centers
+end
+
+function Pit.build(parent: Instance)
+	local c = Config.ARENA_CENTER
+	local floorY = c.Y - Config.PIT_DEPTH -- lava top
+	local stageTop = TUNING.STAGE_TOP
+	local model = MapKit.model("Pit")
+
+	-- P1-P4 lava layers, each at its own height so none z-fight
+	-- (tops at 15.0 / 15.4 / 15.65 and 15.7 for the hot spots).
+	local base = MapKit.disc(
+		CFrame.new(c.X, floorY - TUNING.LAVA_BASE_THICKNESS / 2, c.Z),
+		TUNING.LAVA_BASE_RADIUS,
+		TUNING.LAVA_BASE_THICKNESS,
+		{ Name = "LavaBase", Color = Config.MAP.LAVA_BASE, Material = Enum.Material.Neon }
+	)
+	base.Parent = model
+	MapKit.pointLight(base, Config.MAP.LAVA_CORE, 3, 60)
+
+	local core = MapKit.disc(
+		CFrame.new(c.X, floorY + 0.2, c.Z),
+		TUNING.LAVA_CORE_RADIUS,
+		0.4,
+		ghost("LavaCore", Config.MAP.LAVA_CORE, Enum.Material.Neon)
+	)
+	core.Parent = model
+	embers(core, TUNING.EMBER_RATE)
+	haze(core)
+
+	MapKit.disc(
+		CFrame.new(c.X, floorY + 0.525, c.Z),
+		TUNING.LAVA_HEART_RADIUS,
+		0.25,
+		ghost("LavaHeart", Config.MAP.LAVA_HEART, Enum.Material.Neon)
+	).Parent = model
+
+	for _, spot in TUNING.HOT_SPOTS do
+		MapKit.disc(
+			CFrame.new(c.X + spot.X, floorY + 0.5, c.Z + spot.Y),
+			TUNING.HOT_SPOT_RADIUS,
+			0.4,
+			ghost("HotSpot", Config.MAP.LAVA_FLOW, Enum.Material.Neon)
+		).Parent = model
+	end
+
+	-- P5 crust plates, 0.7 above the lava top.
+	for _, plate in TUNING.CRUST_PLATES do
+		local x, z, yaw, w, d = plate[1], plate[2], plate[3], plate[4], plate[5]
+		MapKit.block(
+			CFrame.new(c.X + x, floorY + 0.7 + TUNING.CRUST_THICKNESS / 2, c.Z + z) * CFrame.Angles(0, math.rad(yaw), 0),
+			Vector3.new(w, TUNING.CRUST_THICKNESS, d),
+			ghost("CrustPlate", Config.MAP.LAVA_CRUST, Enum.Material.SmoothPlastic)
+		).Parent = model
+	end
+
+	-- P6/P7 sleeve and heat ring at the foot of each piston rod. Visual only:
+	-- the crushed deck's under-disc stops 0.1 above the sleeve top.
+	for _, center in platformCenters() do
+		MapKit.column(
+			Vector3.new(center.X, floorY + 0.2, center.Z),
+			TUNING.SLEEVE_HEIGHT,
+			TUNING.SLEEVE_RADIUS,
+			ghost("PistonSleeve", Config.MAP.PEDESTAL_BLACK, Enum.Material.SmoothPlastic)
+		).Parent = model
+		local ring = MapKit.disc(
+			CFrame.new(center.X, floorY + 0.65, center.Z),
+			TUNING.HEAT_RING_RADIUS,
+			0.4,
+			ghost("HeatRing", Config.MAP.LAVA_CORE, Enum.Material.Neon)
+		)
+		ring.Parent = model
+		MapKit.pointLight(ring, Config.MAP.LAVA_LIGHT, 1.5, 40)
+	end
+
+	-- P8 crater wall: eight sides from the lava up to the stage. The inner face
+	-- stands 0.2 proud of the stage hole so the two never z-fight; the outer
+	-- face is buried in the stage.
+	local hole = TUNING.STAGE_HOLE
+	local wallApothem = hole - 0.2
+	local wallHeight = stageTop - floorY
+	MapKit.ring(Vector3.new(c.X, floorY + wallHeight / 2, c.Z), wallApothem + TUNING.WALL_THICKNESS / 2, 8, 0, function(_, cf)
+		MapKit.block(
+			cf,
+			Vector3.new(TUNING.SIDE_LENGTH, wallHeight, TUNING.WALL_THICKNESS),
+			solid("CraterWall", Config.MAP.VOID_BLACK)
+		).Parent = model
+	end)
+
+	-- P9 cyan rim strip over the wall/stage seam.
+	MapKit.ring(Vector3.new(c.X, stageTop + 0.25, c.Z), wallApothem + 0.3, 8, 0, function(_, cf)
+		MapKit.block(
+			cf,
+			Vector3.new(TUNING.SIDE_LENGTH, 0.5, 0.6),
+			ghost("CraterRimStrip", Config.MAP.ELECTRIC_CYAN, Enum.Material.Neon)
+		).Parent = model
+	end)
+
+	-- P10 rim posts on the octagon vertices; every other one carries a light
+	-- (the pit's light budget is 12: lava 1, heat rings 4, rim 4, backdrop 3).
+	local vertexRadius = hole / math.cos(math.rad(22.5))
+	for k = 0, 7 do
+		local a = math.rad(22.5 + 45 * k)
+		local post = MapKit.block(
+			CFrame.new(c.X + vertexRadius * math.cos(a), stageTop + TUNING.RIM_POST_HEIGHT / 2, c.Z + vertexRadius * math.sin(a)),
+			Vector3.new(1.2, TUNING.RIM_POST_HEIGHT, 1.2),
+			ghost("RimPost", Config.MAP.ELECTRIC_CYAN, Enum.Material.Neon)
+		)
+		post.Parent = model
+		if k % 2 == 0 then
+			MapKit.pointLight(post, Config.MAP.ELECTRIC_CYAN, 1.5, 25)
+		end
+	end
+
+	-- P11 stage: four slabs around a square hole, plus one wedge per corner
+	-- that cuts the hole down to the octagon (hypotenuse on the crater apothem).
+	local reach = TUNING.STAGE_REACH
+	local stageY = stageTop - 1
+	local stageProps = solid("StageGround", Config.MAP.VOID_BLACK)
+	local mid = (reach + hole) / 2
+	local span = reach - hole
+	MapKit.block(CFrame.new(c.X, stageY, c.Z + mid), Vector3.new(2 * reach, 2, span), stageProps).Parent = model
+	MapKit.block(CFrame.new(c.X, stageY, c.Z - mid), Vector3.new(2 * reach, 2, span), stageProps).Parent = model
+	MapKit.block(CFrame.new(c.X + mid, stageY, c.Z), Vector3.new(span, 2, 2 * hole), stageProps).Parent = model
+	MapKit.block(CFrame.new(c.X - mid, stageY, c.Z), Vector3.new(span, 2, 2 * hole), stageProps).Parent = model
+
+	local leg = hole - hole * math.tan(math.rad(22.5)) -- square corner to the octagon vertex
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			local wedge = MapKit.wedge(stageProps)
+			wedge.Size = Vector3.new(2, leg, leg)
+			-- Thickness along world Y; the right angle sits on the square corner.
+			wedge.CFrame = CFrame.fromMatrix(
+				Vector3.new(c.X + (hole - leg / 2) * sx, stageY, c.Z + (hole - leg / 2) * sz),
+				Vector3.new(0, sx * sz, 0),
+				Vector3.new(-sx, 0, 0),
+				Vector3.new(0, 0, sz)
+			)
+			wedge.Parent = model
+		end
+	end
+
+	-- P12/P13 backdrop: twelve panels of alternating height, a dim cyan strip
+	-- on each top, and the show logo on the two panels flanking T8 from the hub.
+	local panelRadius = TUNING.BACKDROP_APOTHEM + 1
+	MapKit.ring(Vector3.new(c.X, 0, c.Z), panelRadius, 12, 0, function(i, cf)
+		local h = TUNING.BACKDROP_HEIGHTS[if i % 2 == 1 then 1 else 2]
+		local panel = MapKit.block(
+			cf * CFrame.new(0, stageTop + h / 2, 0),
+			Vector3.new(TUNING.PANEL_LENGTH, h, 2),
+			solid("BackdropWall", Config.MAP.BACKDROP_BLACK)
+		)
+		panel.Parent = model
+		local text = TUNING.LOGO_PANELS[i]
+		if text then
+			logoText(panel, text)
+		end
+		MapKit.block(
+			cf * CFrame.new(0, stageTop + h + 0.25, 0),
+			Vector3.new(TUNING.PANEL_LENGTH, 0.5, 2.4),
+			ghost("BackdropTopStrip", Config.MAP.GRID_CYAN, Enum.Material.Neon)
+		).Parent = model
+	end)
+
+	-- P14 corner posts, all full height so the skyline steps between them;
+	-- every fourth one carries a light.
+	local postRadius = TUNING.BACKDROP_APOTHEM / math.cos(math.rad(15))
+	local postHeight = math.max(TUNING.BACKDROP_HEIGHTS[1], TUNING.BACKDROP_HEIGHTS[2])
+	for k = 0, 11 do
+		local a = math.rad(15 + 30 * k)
+		local post = MapKit.block(
+			CFrame.new(c.X + postRadius * math.cos(a), stageTop + postHeight / 2, c.Z + postRadius * math.sin(a)),
+			Vector3.new(0.8, postHeight, 0.8),
+			ghost("BackdropCornerPost", Config.MAP.ELECTRIC_CYAN, Enum.Material.Neon)
+		)
+		post.Parent = model
+		if k % 4 == 0 then
+			MapKit.pointLight(post, POST_LIGHT, 1, 40)
+		end
+	end
+
+	-- P15/P16 audience banks in the wings: six tiers each, with an invisible
+	-- slab lying along the tread slope that pops camera flashes.
+	local slope = math.atan(5 / 6) -- each tier rises 5 over a 6-stud tread
+	for _, side in { 1, -1 } do
+		for k = 0, TUNING.AUDIENCE_TIERS - 1 do
+			local tierHeight = 5 * (k + 1)
+			local tier = MapKit.block(
+				CFrame.new(c.X + side * (TUNING.AUDIENCE_INNER_X + 6 * k), stageTop + tierHeight / 2, c.Z),
+				Vector3.new(6, tierHeight, TUNING.AUDIENCE_LENGTH),
+				ghost("AudienceBank", Config.MAP.AUDIENCE_NAVY, Enum.Material.SmoothPlastic)
+			)
+			tier.Parent = model
+			seatRows(tier)
+		end
+
+		local slab = MapKit.block(
+			CFrame.new(c.X + side * TUNING.FLASH_CENTER.X, TUNING.FLASH_CENTER.Y, c.Z) * CFrame.Angles(0, 0, side * slope),
+			Vector3.new(40, 3, TUNING.AUDIENCE_LENGTH - 4),
+			{
+				Name = "AudienceFlash",
+				Color = Config.MAP.AUDIENCE_NAVY,
+				Material = Enum.Material.SmoothPlastic,
+				Transparency = 1,
+				CanCollide = false,
+				CanQuery = false,
+				CanTouch = false,
+				CastShadow = false,
+			}
+		)
+		slab.Parent = model
+		cameraFlash(slab)
+	end
+
+	model.Parent = parent
 end
 
 return Pit
@@ -2577,13 +3443,109 @@ _Repo file: `src/server/Map/PlatformDressing.luau`_
 
 ```lua
 --!strict
--- Visual dressing for a hex platform (rim, lights, slot number). Interim: none.
--- Everything added here is parented to `model` and rides the piston drop.
+-- Visual dressing for one hex platform (brief section 3). The deck Arena
+-- built becomes a near-black glossy podium; the slot identity lives in a neon
+-- rim at the side midpoints, a neon ring around a steel collar under the deck,
+-- and a neon under-disc whose light paints the rod, collar, sleeve and pit.
+-- Every new part is parented to the platform model before Arena collects
+-- restPivots, so it rides the piston drop. Nothing here rises above the deck
+-- top (Arena adds the Meter part there afterwards).
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
+local Config = require(Shared.Config)
+local HexGeometry = require(Shared.HexGeometry)
+local MapKit = require(script.Parent.MapKit)
 
 local PlatformDressing = {}
 
+-- Offsets are in the platform frame (topCFrame): Y 0 is the deck top and the
+-- deck fills Y -PLATFORM_THICKNESS..0 (world 58..60).
+local TUNING = {
+	-- Six strips, one per hex side: X runs along the side (side = circumradius),
+	-- Z is the depth, half of which stands proud of the deck face.
+	RIM_SIZE = Vector3.new(Config.PLATFORM_RADIUS, 0.6, 0.3), -- PLACEHOLDER
+	-- Steel collar hugging the rod, its top flush with the deck bottom.
+	COLLAR_RADIUS = 5, -- PLACEHOLDER
+	COLLAR_HEIGHT = 3, -- PLACEHOLDER: world Y 55..58
+	COLLAR_RING_RADIUS = 5.4, -- PLACEHOLDER: neon ring at the collar's mid-height
+	COLLAR_RING_THICKNESS = 0.5, -- PLACEHOLDER
+	-- Under-disc: inside the hex footprint (apothem 10.39), just below the deck.
+	UNDER_DISC_RADIUS = 9.5, -- PLACEHOLDER
+	UNDER_DISC_THICKNESS = 0.3, -- PLACEHOLDER
+	UNDER_DISC_GAP = 0.2, -- PLACEHOLDER: air between the deck bottom and the disc top (z-fight guard)
+	UNDER_LIGHT = { brightness = 2, range = 30 }, -- PLACEHOLDER: slot-colored glow on rod, collar, sleeve and pit
+}
+
+-- Neon trim nothing may rest on: never collidable, queried or touched.
+local function neon(name: string, color: Color3): MapKit.Props
+	return {
+		Name = name,
+		Material = Enum.Material.Neon,
+		Color = color,
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+		CastShadow = false,
+	}
+end
+
 function PlatformDressing.dress(model: Model, topCFrame: CFrame, color: Color3, slot: number)
-	local _unused = { model :: any, topCFrame :: any, color :: any, slot :: any }
+	local thickness = Config.PLATFORM_THICKNESS
+
+	-- Restyle what Arena already built: glossy near-black deck, steel rod.
+	local tint = Config.PLATFORM_DECK_TINTS[slot] or Config.MAP.VOID_BLACK
+	for _, child in model:GetChildren() do
+		if child:IsA("BasePart") and child.Name == "Deck" then
+			child.Material = Enum.Material.SmoothPlastic
+			child.Color = tint
+		end
+	end
+	local rod = model:FindFirstChild("PistonRod")
+	if rod and rod:IsA("BasePart") then
+		rod.Material = Enum.Material.Metal
+		rod.Color = Config.MAP.ROD_STEEL
+	end
+
+	-- Rim: a strip centered on each side midpoint at deck mid-height, looking
+	-- at the deck center so Size.X runs along the side. Corners sit on local
+	-- +-X, so the side midpoints are at 30 + 60k degrees, apothem out.
+	local apothem = HexGeometry.apothem(Config.PLATFORM_RADIUS)
+	local rimY = -thickness / 2
+	local rimCenter = (topCFrame * CFrame.new(0, rimY, 0)).Position
+	for k = 0, 5 do
+		local t = math.rad(30 + 60 * k)
+		local mid = (topCFrame * CFrame.new(apothem * math.cos(t), rimY, apothem * math.sin(t))).Position
+		local strip = MapKit.block(CFrame.lookAt(mid, rimCenter), TUNING.RIM_SIZE, neon("RimStrip", color))
+		strip.Parent = model
+	end
+
+	-- Collar under the deck with the slot-colored ring around its waist.
+	local collarCF = topCFrame * CFrame.new(0, -thickness - TUNING.COLLAR_HEIGHT / 2, 0)
+	local collar = MapKit.cylinder(collarCF, TUNING.COLLAR_HEIGHT, TUNING.COLLAR_RADIUS, {
+		Name = "Collar",
+		Material = Enum.Material.Metal,
+		Color = Config.MAP.COLLAR_IRON,
+		CanCollide = false,
+		CanQuery = false,
+		CanTouch = false,
+	})
+	collar.Parent = model
+	local collarRing = MapKit.disc(collarCF, TUNING.COLLAR_RING_RADIUS, TUNING.COLLAR_RING_THICKNESS, neon("CollarRing", color))
+	collarRing.Parent = model
+
+	-- Under-disc just below the deck bottom. On a drop it bottoms out 0.1 above
+	-- the Pit's sleeve top, so the crushed deck visibly lands on something.
+	local discY = -thickness - TUNING.UNDER_DISC_GAP - TUNING.UNDER_DISC_THICKNESS / 2
+	local underDisc = MapKit.disc(
+		topCFrame * CFrame.new(0, discY, 0),
+		TUNING.UNDER_DISC_RADIUS,
+		TUNING.UNDER_DISC_THICKNESS,
+		neon("UnderDisc", color)
+	)
+	underDisc.Parent = model
+	MapKit.pointLight(underDisc, color, TUNING.UNDER_LIGHT.brightness, TUNING.UNDER_LIGHT.range)
 end
 
 return PlatformDressing
@@ -2595,13 +3557,23 @@ _Repo file: `src/server/Map/Showcase.luau`_
 
 ```lua
 --!strict
--- Showcase gallery of the game's models, reached by teleport pad. Interim version.
--- Contract: returns where teleported players stand. Must include a return pad.
+-- Backstage gallery (brief section 5): a navy room on a black column east of
+-- the hub at hub height, its west side open behind glass toward the towers
+-- and lava. Seven pedestals on an arc all face the arrival point, each with a
+-- tilted plaque and a spot head over it: the hero d10, a live half-scale hex
+-- podium, a tower, a pumping piston, a lava puddle, a PIT CAM and a truss
+-- rig. A magenta return gate and pad lead back to the hub, linked to the hub
+-- gate by a thin cyan data beam. 105 parts.
+-- Contract: returns where teleported players are placed (the arrival point).
 
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
+local HexGeometry = require(Shared.HexGeometry)
 local MapKit = require(script.Parent.MapKit)
 
 local Showcase = {}
@@ -2610,18 +3582,770 @@ export type Result = {
 	spawnCFrame: CFrame,
 }
 
-function Showcase.build(parent: Instance): Result
-	local origin = Config.ARENA_CENTER + Config.SHOWCASE_OFFSET
-	local model = MapKit.model("Showcase", parent)
-	MapKit.block(CFrame.new(origin - Vector3.new(0, 1, 0)), Vector3.new(60, 2, 60), {
-		Name = "ShowcaseFloor",
-		Color = Color3.fromRGB(40, 40, 48),
+type ExhibitSpec = { key: string, angle: number, title: string, caption: string, hero: boolean? }
+
+-- Pedestal handed to the exhibit builders.
+type Pedestal = {
+	floorCF: CFrame, -- floor top under the pedestal center, local -Z toward the arrival
+	discTop: Vector3, -- center of the disc's top face; exhibits stand here
+}
+
+-- Same tag Arena puts on the real platforms; the client ring controller
+-- animates every model carrying it.
+local PLATFORM_TAG = "DebrisClearPlatform"
+
+-- Offsets are from S = ARENA_CENTER + SHOWCASE_OFFSET = (180, 88, 95), the
+-- center of the floor top. Room Y values are studs above the floor top;
+-- exhibit Y values are studs above their pedestal's disc top (world 90.9).
+local TUNING = {
+	-- Room shell.
+	ROOM = 60, -- PLACEHOLDER: floor side (world X 150..210, Z 65..125)
+	FLOOR_THICKNESS = 2, -- PLACEHOLDER
+	COLUMN_SIZE = Vector3.new(24, 50, 24), -- PLACEHOLDER: black column under the floor, standing on the stage (Y 36..86)
+	COLUMN_STRIP = { size = 0.5, out = 0.1 }, -- PLACEHOLDER: neon line on each column edge, centered 0.1 outside the corner
+	LINE_HEIGHT = 0.16, -- PLACEHOLDER: floor lines, bottoms flush with the floor top
+	LINE_WIDTH = 0.3, -- PLACEHOLDER
+	BORDER_INSET = 2, -- PLACEHOLDER: border lines this far in from the floor edge
+	LANE = { length = 30, centerX = 1, halfGap = 4 }, -- PLACEHOLDER: two strips from the arrival to the hero
+	WALL_HEIGHT = 16, -- PLACEHOLDER
+	WALL_THICKNESS = 1, -- PLACEHOLDER
+	TOP_STRIP = { height = 0.5, width = 1.2 }, -- PLACEHOLDER: magenta strip along each wall top
+	CORNER_POST = 1.2, -- PLACEHOLDER: neon post in each floor corner, full wall height
+	CORNER_LIGHT = { brightness = 1.2, range = 45 }, -- PLACEHOLDER: room ambient
+	RAIL = { glassHeight = 3.6, glassThickness = 0.3, capHeight = 0.4, capWidth = 0.6 }, -- PLACEHOLDER: open west edge
+	LIGHT_BAR_X = { 4, 20 }, -- PLACEHOLDER: truss bars across the room at S.X + these (world 184, 200)
+	LIGHT_BAR_Y = 15, -- PLACEHOLDER: bar center (world 103; bottom 102)
+	LIGHT_BAR_SIZE = Vector3.new(2, 2, 58), -- PLACEHOLDER: touches both side walls; every axis a multiple of 2
+	SPOT_HEAD = { y = 13.4, size = Vector3.new(1.4, 1.4, 2.2), angle = 45, brightness = 3, range = 20 }, -- PLACEHOLDER: one under a bar over every pedestal
+
+	-- Arrival and the pedestal arc.
+	ARRIVAL = Vector3.new(-13, 0, 0), -- PLACEHOLDER: world (167, 88, 95), 6 clear of the return pad's edge; also the arc center
+	STAND_HEIGHT = 3.5, -- PLACEHOLDER: HumanoidRootPart above the floor
+	ARRIVAL_MARKER = { radius = 3, thickness = 0.15, lift = 0.08 }, -- PLACEHOLDER
+	ARC_RADIUS = 29, -- PLACEHOLDER: pedestal centers from the arrival point
+	-- Angle on the arc (0 = straight ahead of the arrival, + toward north/+Z)
+	-- and plaque text per exhibit. Order is build order.
+	EXHIBITS = {
+		{ key = "Debris", angle = 0, title = "D10 DEBRIS", caption = "15 load each. Grab it (E), throw it (click).", hero = true },
+		{ key = "Platform", angle = -21, title = "HEX PLATFORM", caption = "Your podium. The ring drains as load climbs; 100 drops the piston." },
+		{ key = "Tower", angle = 21, title = "TOWER", caption = "Nine of these ring the set, every part in debris pink." },
+		{ key = "Lava", angle = -42, title = "LAVA", caption = "The pit. Below Y 40 nothing comes back." },
+		{ key = "PitCam", angle = 42, title = "PIT CAM", caption = "The jib over the pit. Every crush, live." },
+		{ key = "Piston", angle = -60, title = "PISTON", caption = "Load 100: 38 studs down in 0.3 s. You go with it." },
+		{ key = "Rig", angle = 60, title = "THE RIG", caption = "One color spot and one key spot on every podium." },
+	} :: { ExhibitSpec }, -- PLACEHOLDER
+	PEDESTAL = { -- PLACEHOLDER: the six standard pedestals
+		base = Vector3.new(6, 2.6, 6),
+		discRadius = 3.2,
+		discThickness = 0.3,
+		plaque = Vector3.new(6, 1.6, 0.3),
+		plaqueOffset = Vector3.new(0, 0.5, -3.45), -- from the base center, toward the arrival
+	},
+	HERO = { -- PLACEHOLDER: the d10 pedestal
+		base = Vector3.new(8, 4, 8),
+		discRadius = 4.2,
+		discThickness = 0.3,
+		plaque = Vector3.new(8, 1.8, 0.3),
+		plaqueOffset = Vector3.new(0, 1.2, -4.45),
+	},
+	PLAQUE_TILT = 28, -- PLACEHOLDER: degrees the plaque leans back (top edge level with the base top)
+	PLAQUE_PIXELS_PER_STUD = 40, -- PLACEHOLDER
+	DISC_LIGHT = { brightness = 1, range = 10 }, -- PLACEHOLDER: cyan pool on each standard pedestal
+
+	-- Exhibits.
+	D10 = { lift = 5.2, scale = 3, spin = 30, bob = 0.6, bobPeriod = 3, light = { brightness = 3, range = 24 } }, -- PLACEHOLDER: center world Y 97.5, 6 studs across
+	HEX = { -- PLACEHOLDER: half-scale podium (real decks: R 12, T 2)
+		radius = 6,
+		thickness = 1,
+		topLift = 4.6, -- deck top above the disc top (world 95.5)
+		rim = Vector3.new(6, 0.3, 0.15), -- X along the side; half the depth stands proud
+		rodRadius = 1.5, -- rod from the disc top to the deck bottom
+		collar = { radius = 2.5, height = 1 }, -- top flush with the deck bottom
+		underDisc = { radius = 4.75, thickness = 0.15, gap = 0.05 },
+		underLight = { brightness = 1.5, range = 10 },
+		loadCycle = { rise = 8, hold = 1.5, rest = 1 }, -- seconds: Load 0 -> capacity, hold, back to 0, rest
+	},
+	TOWER = { -- PLACEHOLDER: 1/5 scale
+		plinth = { radius = 1.2, height = 0.4 },
+		body = { radius = 0.8, height = 12 },
+		ring = { radius = 0.9, thickness = 0.15, first = 3.4, spacing = 4 }, -- first ring this far above the disc top
+		cap = { radius = 0.95, thickness = 0.3 },
+		capLight = { brightness = 1.5, range = 12 },
+		searchlight = { height = 8, width0 = 1.2, width1 = 0.1 },
+	},
+	PISTON = { -- PLACEHOLDER
+		sleeve = { radius = 2.2, height = 2 },
+		rod = { radius = 1.5, height = 6 },
+		collar = { radius = 2.5, height = 1.5 }, -- top flush with the rod top
+		ring = { radius = 2.7, thickness = 0.3, y = 5.25 }, -- center above the disc top
+		cap = { radius = 4, thickness = 0.6 }, -- sits on the rod top
+		rim = { radius = 4.2, thickness = 0.3, y = 6.3 },
+		drop = 4, -- studs the moving parts fall
+		dropTime = 0.3,
+		downHold = 1.2,
+		riseTime = 1.5,
+		upHold = 1.5,
+	},
+	LAVA = { -- PLACEHOLDER
+		disc = { radius = 2.8, thickness = 0.3 },
+		plateThickness = 0.2,
+		plateY = 0.4, -- plate center above the disc top; the plates rest on the puddle
+		-- {x, z, yawDeg, sizeX, sizeZ}: crust plates floating on the puddle
+		plates = { { 0.6, 0.5, 20, 1.6, 2.4 }, { -1.0, -0.6, 75, 2.2, 1.4 }, { 0.4, -1.5, 130, 1.2, 1.2 } },
+		emberRate = 6,
+		emberSize = NumberSequence.new(0.15, 0.35),
+		light = { brightness = 1.5, range = 10 },
+	},
+	PITCAM = { -- PLACEHOLDER: offsets are pedestal-local from the floor top
+		postSize = Vector3.new(2, 8, 2), -- truss standing on the disc
+		armSize = Vector3.new(0.6, 0.6, 5), -- from the post top toward the arrival
+		armOffset = Vector3.new(0, 9.9, -2.5),
+		headSize = Vector3.new(1.2, 1, 1.6),
+		headOffset = Vector3.new(0, 9.1, -5), -- hanging 0.8 under the arm end, aimed at the disc
+		lens = { radius = 0.45, length = 1, offset = 1.1 },
+		tally = 0.3,
+		spot = { angle = 35, brightness = 3, range = 12 },
+		blink = { period = 1.2, maxT = 0.7 },
+	},
+	RIG = { -- PLACEHOLDER: pedestal-local offsets from the floor top
+		postSize = Vector3.new(0.4, 5, 0.4),
+		postX = 2.5,
+		trussSize = Vector3.new(2, 2, 6), -- long axis turned onto pedestal-local X
+		trussY = 8.9,
+		fixtureSize = Vector3.new(1.2, 1.2, 1.6),
+		fixtureX = 1.5,
+		fixtureY = 7.7, -- hanging under the truss
+		colorSpot = { angle = 35, brightness = 4, range = 12 },
+		keySpot = { angle = 45, brightness = 2.5, range = 12 },
+	},
+
+	-- Return gate and pad (players walk -X through the arch onto the pad).
+	PAD_OFFSET = Vector3.new(-23, 0.3, 0), -- PLACEHOLDER: world (157, 88.3, 95); pad X 153..161
+	GATE = { -- PLACEHOLDER: straddles the pad along Z
+		x = -23,
+		pillar = Vector3.new(1.5, 9, 1.5),
+		pillarZ = 5.75, -- either side of the pad center
+		lintel = Vector3.new(1.5, 1.5, 13),
+		neonPillar = Vector3.new(0.3, 9, 0.3), -- on the pillars' inner faces
+		neonLintel = Vector3.new(0.3, 0.3, 11), -- under the lintel
+	},
+	LINK_BEAM = { width = 0.5, transparency = 0.55 }, -- PLACEHOLDER: data line to the hub gate's LinkA
+}
+
+local WALL_TEXT = {
+	title = "SHOWCASE",
+	subtitle = "THE PIECES OF DEBRIS CLEAR",
+	howToPlay = {
+		"E or X: grab debris within 5 studs",
+		"Click or R2: throw at the cursor",
+		"Off the edge, or onto a rival",
+	},
+	rules = {
+		"15 load per piece. 100 crushes your piston.",
+		"Last podium standing wins.",
+	},
+}
+
+local PLAQUE_STROKE = Color3.fromRGB(0, 90, 120)
+local EMBER_HOT = Color3.fromRGB(255, 140, 50)
+local EMBER_COOL = Color3.fromRGB(255, 40, 10)
+
+---------------------------------------------------------------------------
+-- Prop and text helpers
+---------------------------------------------------------------------------
+
+-- Solid set piece (SmoothPlastic unless told otherwise).
+local function solid(name: string, color: Color3, material: Enum.Material?): MapKit.Props
+	return { Name = name, Color = color, Material = material or Enum.Material.SmoothPlastic }
+end
+
+-- Nothing may rest on, ray-hit or touch these (thin dressing, moving parts).
+local function ghost(props: MapKit.Props): MapKit.Props
+	props.CanCollide = false
+	props.CanQuery = false
+	props.CanTouch = false
+	return props
+end
+
+-- Neon trim (strips, rings, discs, posts): never collidable, no shadow.
+-- Neon unless told otherwise (the tower trim follows TOWER_NEON_TRIM).
+local function neon(name: string, color: Color3, material: Enum.Material?): MapKit.Props
+	local props = ghost(solid(name, color, material or Enum.Material.Neon))
+	props.CastShadow = false
+	return props
+end
+
+-- Light fixture / camera housing.
+local function housing(name: string): MapKit.Props
+	return solid(name, Config.MAP.FIXTURE_GREY)
+end
+
+local function trussProps(name: string, size: Vector3, cf: CFrame, color: Color3): MapKit.Props
+	return {
+		Name = name,
+		Size = size,
+		CFrame = cf,
+		Style = Enum.Style.BridgeStyleSupports,
+		Color = color,
 		Material = Enum.Material.SmoothPlastic,
+	}
+end
+
+local function set(instance: Instance, props: MapKit.Props)
+	for k, v in props do
+		(instance :: any)[k] = v
+	end
+end
+
+-- Another line on a face that already has a surfaceText gui.
+local function addLabel(gui: SurfaceGui, text: string, props: MapKit.Props): TextLabel
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.BackgroundTransparency = 1
+	label.TextScaled = true
+	label.TextStrokeTransparency = 1
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Text = text
+	set(label, props)
+	label.Parent = gui
+	return label
+end
+
+local function captionStyle(size: UDim2, position: UDim2): MapKit.Props
+	return { Size = size, Position = position, Font = Enum.Font.Gotham, TextColor3 = Config.MAP.ELECTRIC_CYAN }
+end
+
+-- Show logo style: magenta GothamBlack with a cyan outline.
+local function logoStyle(label: TextLabel)
+	label.Font = Enum.Font.GothamBlack
+	label.TextColor3 = Config.DEBRIS_COLOR
+	label.TextStrokeTransparency = 1
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Config.MAP.ELECTRIC_CYAN
+	stroke.Thickness = 4
+	stroke.Parent = label
+end
+
+-- Cyan header over white GothamMedium lines on a wall face.
+local function poster(wall: BasePart, face: Enum.NormalId, header: string, lines: { string })
+	local gui = MapKit.surfaceText(wall, face, header, {
+		Size = UDim2.fromScale(0.9, 0.2),
+		Position = UDim2.fromScale(0.05, 0.05),
+		TextColor3 = Config.MAP.ELECTRIC_CYAN,
+	})
+	local stride = 0.6 / #lines
+	for i, line in lines do
+		addLabel(gui, line, {
+			Size = UDim2.fromScale(0.9, 0.16),
+			Position = UDim2.fromScale(0.05, 0.3 + (i - 1) * stride),
+			Font = Enum.Font.GothamMedium,
+		})
+	end
+end
+
+-- Title over caption on the plaque's tilted front face.
+local function plaqueText(plaque: BasePart, title: string, caption: string)
+	local gui = MapKit.surfaceText(plaque, Enum.NormalId.Front, title, {
+		Size = UDim2.fromScale(0.94, 0.5),
+		Position = UDim2.fromScale(0.03, 0.04),
+		TextStrokeTransparency = 0,
+		TextStrokeColor3 = PLAQUE_STROKE,
+	})
+	gui.PixelsPerStud = TUNING.PLAQUE_PIXELS_PER_STUD
+	addLabel(gui, caption, captionStyle(UDim2.fromScale(0.94, 0.42), UDim2.fromScale(0.03, 0.55)))
+end
+
+-- Discs are cylinders rotated about Z, so their local +X (Right) is world up.
+local function embers(disc: BasePart, rate: number, size: NumberSequence): ParticleEmitter
+	return MapKit.emitter(disc, {
+		Name = "Embers",
+		Color = ColorSequence.new(EMBER_HOT, EMBER_COOL),
+		Size = size,
+		Lifetime = NumberRange.new(2, 4),
+		Speed = NumberRange.new(5, 10),
+		Rate = rate,
+		SpreadAngle = Vector2.new(12, 12),
+		Acceleration = Vector3.new(0, 1.5, 0),
+		LightEmission = 1,
+		LightInfluence = 0,
+		Transparency = NumberSequence.new(0.1, 1),
+		EmissionDirection = Enum.NormalId.Right,
+		ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume,
+	})
+end
+
+---------------------------------------------------------------------------
+-- Room: column, floor, lines, walls, posts, rail, light bars (26 parts;
+-- the 7 spot heads under the bars are hung per pedestal, below)
+---------------------------------------------------------------------------
+
+local function buildRoom(model: Model, S: Vector3)
+	local room, floorT = TUNING.ROOM, TUNING.FLOOR_THICKNESS
+	local wallH, wallT = TUNING.WALL_HEIGHT, TUNING.WALL_THICKNESS
+	local inset = room / 2 - wallT / 2 -- wall centers, corner posts and the rail sit here
+
+	-- Black column standing on the stage, a neon line down each edge.
+	local column = TUNING.COLUMN_SIZE
+	local columnCenter = S + Vector3.new(0, -floorT - column.Y / 2, 0)
+	MapKit.block(CFrame.new(columnCenter), column, solid("BaseColumn", Config.MAP.VOID_BLACK)).Parent = model
+	local edge = column.X / 2 + TUNING.COLUMN_STRIP.out
+	local stripSize = Vector3.new(TUNING.COLUMN_STRIP.size, column.Y, TUNING.COLUMN_STRIP.size)
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			MapKit.block(CFrame.new(columnCenter + Vector3.new(sx * edge, 0, sz * edge)), stripSize, neon("ColumnStrip", Config.MAP.GRID_CYAN)).Parent =
+				model
+		end
+	end
+
+	-- Floor and its neon lines: a border and two lanes from the arrival to the hero.
+	MapKit.block(CFrame.new(S - Vector3.new(0, floorT / 2, 0)), Vector3.new(room, floorT, room), solid("Floor", Config.MAP.PANEL_BLACK)).Parent =
+		model
+	local lineY = TUNING.LINE_HEIGHT / 2
+	local border = room / 2 - TUNING.BORDER_INSET
+	local borderLength = room - 2 * TUNING.BORDER_INSET
+	local lane = TUNING.LANE
+	for _, s in { -1, 1 } do
+		MapKit.block(
+			CFrame.new(S + Vector3.new(0, lineY, s * border)),
+			Vector3.new(borderLength, TUNING.LINE_HEIGHT, TUNING.LINE_WIDTH),
+			neon("FloorLine", Config.MAP.GRID_CYAN)
+		).Parent = model
+		MapKit.block(
+			CFrame.new(S + Vector3.new(s * border, lineY, 0)),
+			Vector3.new(TUNING.LINE_WIDTH, TUNING.LINE_HEIGHT, borderLength),
+			neon("FloorLine", Config.MAP.GRID_CYAN)
+		).Parent = model
+		MapKit.block(
+			CFrame.new(S + Vector3.new(lane.centerX, lineY, s * lane.halfGap)),
+			Vector3.new(lane.length, TUNING.LINE_HEIGHT, TUNING.LINE_WIDTH),
+			neon("FloorLane", Config.MAP.GRID_CYAN)
+		).Parent = model
+	end
+
+	-- Three navy walls (the west side stays open), each with a magenta top strip.
+	local function wall(name: string, offset: Vector3, size: Vector3): Part
+		local part = MapKit.block(CFrame.new(S + offset + Vector3.new(0, wallH / 2, 0)), size, solid(name, Config.MAP.DEEP_NAVY))
+		part.Parent = model
+		local strip = TUNING.TOP_STRIP
+		local stripSize = if size.X > size.Z then Vector3.new(size.X, strip.height, strip.width) else Vector3.new(strip.width, strip.height, size.Z)
+		MapKit.block(CFrame.new(S + offset + Vector3.new(0, wallH + strip.height / 2, 0)), stripSize, neon("WallTopStrip", Config.DEBRIS_COLOR)).Parent =
+			model
+		return part
+	end
+	local back = wall("BackWall", Vector3.new(inset, 0, 0), Vector3.new(wallT, wallH, room))
+	local south = wall("SouthWall", Vector3.new(0, 0, -inset), Vector3.new(room, wallH, wallT))
+	local north = wall("NorthWall", Vector3.new(0, 0, inset), Vector3.new(room, wallH, wallT))
+
+	-- Room-facing texts: title on the back wall, how-to and rules on the sides.
+	local gui, title = MapKit.surfaceText(back, Enum.NormalId.Left, WALL_TEXT.title, {
+		Size = UDim2.fromScale(0.9, 0.28),
+		Position = UDim2.fromScale(0.05, 0.06),
+	})
+	logoStyle(title)
+	addLabel(gui, WALL_TEXT.subtitle, captionStyle(UDim2.fromScale(0.9, 0.12), UDim2.fromScale(0.05, 0.36)))
+	poster(south, Enum.NormalId.Back, "HOW TO PLAY", WALL_TEXT.howToPlay)
+	poster(north, Enum.NormalId.Front, "THE RULES", WALL_TEXT.rules)
+
+	-- Cyan corner posts carry the room's ambient light.
+	local postSize = Vector3.new(TUNING.CORNER_POST, wallH, TUNING.CORNER_POST)
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			local post = MapKit.block(CFrame.new(S + Vector3.new(sx * inset, wallH / 2, sz * inset)), postSize, neon("CornerPost", Config.MAP.ELECTRIC_CYAN))
+			post.Parent = model
+			MapKit.pointLight(post, Config.MAP.ROOM_WHITE, TUNING.CORNER_LIGHT.brightness, TUNING.CORNER_LIGHT.range)
+		end
+	end
+
+	-- Glass rail along the open west edge, looking back at the set.
+	local rail = TUNING.RAIL
+	MapKit.block(CFrame.new(S + Vector3.new(-inset, rail.glassHeight / 2, 0)), Vector3.new(rail.glassThickness, rail.glassHeight, room), {
+		Name = "WestRail",
+		Color = Config.MAP.RAIL_GLASS,
+		Material = Enum.Material.Glass,
+		Transparency = Config.RAIL_GLASS_TRANSPARENCY,
 	}).Parent = model
-	MapKit.teleportPad(model, CFrame.new(origin + Vector3.new(0, 0.3, 22)), "BACK TO HUB", "Hub", Color3.fromRGB(255, 140, 50))
-	local piece = MapKit.showcaseDebris(model, CFrame.new(origin + Vector3.new(0, 4, 0)), 3)
-	MapKit.spin(piece, 30)
-	return { spawnCFrame = CFrame.new(origin + Vector3.new(0, 3.5, 10)) }
+	MapKit.block(
+		CFrame.new(S + Vector3.new(-inset, rail.glassHeight + rail.capHeight / 2, 0)),
+		Vector3.new(rail.capWidth, rail.capHeight, room),
+		neon("WestRailCap", Config.MAP.GRID_CYAN)
+	).Parent = model
+
+	-- Two truss bars across the room; the spot heads hang under them.
+	for _, x in TUNING.LIGHT_BAR_X do
+		MapKit.truss(trussProps("LightBar", TUNING.LIGHT_BAR_SIZE, CFrame.new(S + Vector3.new(x, TUNING.LIGHT_BAR_Y, 0)), Config.MAP.STUDIO_GREY)).Parent =
+			model
+	end
+end
+
+-- Key spot under the nearest light bar, aimed at the pedestal's disc.
+local function hangSpotHead(model: Model, S: Vector3, discTop: Vector3)
+	local head = TUNING.SPOT_HEAD
+	local barX = TUNING.LIGHT_BAR_X[1]
+	for _, x in TUNING.LIGHT_BAR_X do
+		if math.abs(S.X + x - discTop.X) < math.abs(S.X + barX - discTop.X) then
+			barX = x
+		end
+	end
+	local pos = Vector3.new(S.X + barX, S.Y + head.y, discTop.Z)
+	local fixture = MapKit.block(CFrame.lookAt(pos, discTop), head.size, housing("SpotHead"))
+	fixture.Parent = model
+	MapKit.spotLight(fixture, Enum.NormalId.Front, Config.MAP.KEY_WHITE, head.angle, head.brightness, head.range)
+end
+
+---------------------------------------------------------------------------
+-- Pedestals (3 parts each)
+---------------------------------------------------------------------------
+
+-- Base, neon disc and tilted plaque on the arc around the arrival point.
+local function buildPedestal(model: Model, arrival: Vector3, spec: ExhibitSpec): Pedestal
+	local hero = spec.hero == true
+	local dims = if hero then TUNING.HERO else TUNING.PEDESTAL
+	local a = math.rad(spec.angle)
+	local pos = arrival + Vector3.new(math.cos(a), 0, math.sin(a)) * TUNING.ARC_RADIUS
+	local floorCF = CFrame.lookAt(pos, Vector3.new(arrival.X, pos.Y, arrival.Z))
+
+	local baseCF = floorCF * CFrame.new(0, dims.base.Y / 2, 0)
+	MapKit.block(baseCF, dims.base, solid("PedestalBase", Config.MAP.PEDESTAL_BLACK)).Parent = model
+
+	local discColor = if hero then Config.DEBRIS_COLOR else Config.MAP.ELECTRIC_CYAN
+	local disc = MapKit.disc(
+		floorCF * CFrame.new(0, dims.base.Y + dims.discThickness / 2, 0),
+		dims.discRadius,
+		dims.discThickness,
+		neon("PedestalDisc", discColor)
+	)
+	disc.Parent = model
+	if not hero then
+		MapKit.pointLight(disc, Config.MAP.ELECTRIC_CYAN, TUNING.DISC_LIGHT.brightness, TUNING.DISC_LIGHT.range)
+	end
+
+	-- Plaque on the arrival-facing side, leaning back so its face looks up at the visitor.
+	local plaqueCF = baseCF * CFrame.new(dims.plaqueOffset) * CFrame.Angles(math.rad(TUNING.PLAQUE_TILT), 0, 0)
+	local plaque = MapKit.block(plaqueCF, dims.plaque, solid("Plaque", Config.MAP.VOID_BLACK))
+	plaque.Parent = model
+	plaqueText(plaque, spec.title, spec.caption)
+
+	return {
+		floorCF = floorCF,
+		discTop = pos + Vector3.new(0, dims.base.Y + dims.discThickness, 0),
+	}
+end
+
+---------------------------------------------------------------------------
+-- Exhibits
+---------------------------------------------------------------------------
+
+-- Hero d10: clients render it over the anchor, 3x scale, spinning and bobbing.
+local function buildDebris(model: Model, ped: Pedestal, _arrival: Vector3)
+	local d = TUNING.D10
+	local anchor = MapKit.showcaseDebris(model, CFrame.new(ped.discTop + Vector3.new(0, d.lift, 0)), d.scale)
+	MapKit.pointLight(anchor, Config.DEBRIS_COLOR, d.light.brightness, d.light.range)
+	MapKit.spinBob(anchor, d.spin, d.bob, d.bobPeriod)
+end
+
+-- Half-scale podium with a live ring meter: the same deck/rim/collar/under-disc
+-- recipe as PlatformDressing, tagged like a platform, with Load cycling.
+local function buildPlatform(model: Model, ped: Pedestal, arrival: Vector3)
+	local h = TUNING.HEX
+	local color = Config.PLATFORM_COLORS[1]
+	local exhibit = MapKit.model("ExhibitPlatform", model)
+	local topPos = ped.discTop + Vector3.new(0, h.topLift, 0)
+	-- A flat edge faces the arrival, as the real decks face the pit.
+	local top = CFrame.lookAt(topPos, Vector3.new(arrival.X, topPos.Y, arrival.Z))
+
+	MapKit.hexDeck(top, h.radius, h.thickness, exhibit, {
+		Name = "Deck",
+		Color = Config.PLATFORM_DECK_TINTS[1],
+		Material = Enum.Material.SmoothPlastic,
+	})
+
+	-- Rim strips centered on the side midpoints at deck mid-height.
+	local apothem = HexGeometry.apothem(h.radius)
+	local rimY = -h.thickness / 2
+	local rimCenter = (top * CFrame.new(0, rimY, 0)).Position
+	for k = 0, 5 do
+		local t = math.rad(30 + 60 * k)
+		local mid = (top * CFrame.new(apothem * math.cos(t), rimY, apothem * math.sin(t))).Position
+		MapKit.block(CFrame.lookAt(mid, rimCenter), h.rim, neon("RimStrip", color)).Parent = exhibit
+	end
+
+	-- Rod from the disc top to the deck bottom, collar at its top, under-disc just below the deck.
+	local rodLength = h.topLift - h.thickness
+	MapKit.cylinder(top * CFrame.new(0, -h.thickness - rodLength / 2, 0), rodLength, h.rodRadius, solid("PistonRod", Config.MAP.ROD_STEEL, Enum.Material.Metal)).Parent =
+		exhibit
+	MapKit.cylinder(
+		top * CFrame.new(0, -h.thickness - h.collar.height / 2, 0),
+		h.collar.height,
+		h.collar.radius,
+		solid("Collar", Config.MAP.COLLAR_IRON, Enum.Material.Metal)
+	).Parent = exhibit
+	local under = MapKit.disc(
+		top * CFrame.new(0, -h.thickness - h.underDisc.gap - h.underDisc.thickness / 2, 0),
+		h.underDisc.radius,
+		h.underDisc.thickness,
+		neon("UnderDisc", color)
+	)
+	under.Parent = exhibit
+	MapKit.pointLight(under, color, h.underLight.brightness, h.underLight.range)
+
+	MapKit.ringMeter(top, h.radius, exhibit)
+
+	-- Same attributes and tag as a real platform so the client animates the
+	-- ring; Slot 0 and an empty OwnerName keep the rival billboard off.
+	exhibit:SetAttribute("Slot", 0)
+	exhibit:SetAttribute("Load", 0)
+	exhibit:SetAttribute("Capacity", Config.PLATFORM_CAPACITY)
+	exhibit:SetAttribute("OwnerName", "")
+	exhibit:SetAttribute("Eliminated", false)
+	CollectionService:AddTag(exhibit, PLATFORM_TAG)
+
+	-- Load climbs to capacity, holds, resets, rests: attribute writes only.
+	local cycle = h.loadCycle
+	task.spawn(function()
+		while exhibit.Parent do
+			local t = 0
+			while t < cycle.rise do
+				t += RunService.Heartbeat:Wait()
+				exhibit:SetAttribute("Load", math.floor(Config.PLATFORM_CAPACITY * math.min(t / cycle.rise, 1)))
+			end
+			task.wait(cycle.hold)
+			exhibit:SetAttribute("Load", 0)
+			task.wait(cycle.rest)
+		end
+	end)
+end
+
+-- 1/5-scale tower, every part in DEBRIS_COLOR like the real ones.
+local function buildTower(model: Model, ped: Pedestal, _arrival: Vector3)
+	local t = TUNING.TOWER
+	local trimMaterial = if Config.TOWER_NEON_TRIM then Enum.Material.Neon else Config.DEBRIS_MATERIAL
+	local function towerProps(name: string, material: Enum.Material): MapKit.Props
+		return solid(name, Config.DEBRIS_COLOR, material)
+	end
+	local base = ped.discTop
+
+	MapKit.column(base, t.plinth.height, t.plinth.radius, towerProps("Plinth", Config.DEBRIS_MATERIAL)).Parent = model
+	local bodyBase = base + Vector3.new(0, t.plinth.height, 0)
+	MapKit.column(bodyBase, t.body.height, t.body.radius, towerProps("Body", Config.DEBRIS_MATERIAL)).Parent = model
+
+	local top = bodyBase.Y + t.body.height
+	local y = base.Y + t.ring.first
+	while y < top do
+		MapKit.disc(CFrame.new(base.X, y, base.Z), t.ring.radius, t.ring.thickness, neon("Ring", Config.DEBRIS_COLOR, trimMaterial)).Parent = model
+		y += t.ring.spacing
+	end
+
+	local cap = MapKit.disc(CFrame.new(base.X, top + t.cap.thickness / 2, base.Z), t.cap.radius, t.cap.thickness, neon("Cap", Config.DEBRIS_COLOR, trimMaterial))
+	cap.Parent = model
+	MapKit.pointLight(cap, Config.DEBRIS_COLOR, t.capLight.brightness, t.capLight.range)
+	-- After parenting: the beam's top attachment is placed in world space.
+	MapKit.beamUp(cap, t.searchlight.height, t.searchlight.width0, t.searchlight.width1, Config.DEBRIS_COLOR)
+end
+
+-- Piston in P2 yellow: the rod, collar, ring and cap pump; the sleeve stays.
+local function buildPiston(model: Model, ped: Pedestal, _arrival: Vector3)
+	local p = TUNING.PISTON
+	local base = ped.discTop
+	local yellow = Config.PLATFORM_COLORS[2]
+
+	local sleeve = MapKit.column(base, p.sleeve.height, p.sleeve.radius, solid("PistonSleeve", Config.MAP.PEDESTAL_BLACK))
+	sleeve.Parent = model
+
+	-- Moving parts never collide: a player standing on them would be dropped.
+	local moving = {
+		MapKit.column(base, p.rod.height, p.rod.radius, ghost(solid("PistonRod", Config.MAP.ROD_STEEL, Enum.Material.Metal))),
+		MapKit.column(
+			base + Vector3.new(0, p.rod.height - p.collar.height, 0),
+			p.collar.height,
+			p.collar.radius,
+			ghost(solid("Collar", Config.MAP.COLLAR_IRON, Enum.Material.Metal))
+		),
+		MapKit.disc(CFrame.new(base + Vector3.new(0, p.ring.y, 0)), p.ring.radius, p.ring.thickness, neon("CollarRing", yellow)),
+		MapKit.column(base + Vector3.new(0, p.rod.height, 0), p.cap.thickness, p.cap.radius, ghost(solid("PistonCap", Config.PLATFORM_DECK_TINTS[2]))),
+		MapKit.disc(CFrame.new(base + Vector3.new(0, p.rim.y, 0)), p.rim.radius, p.rim.thickness, neon("CapRim", yellow)),
+	}
+	local rest: { [BasePart]: CFrame } = {}
+	for _, part in moving do
+		part.Parent = model
+		rest[part] = part.CFrame
+	end
+
+	-- Slide every moving part to `offset` below rest and wait for it.
+	local function slide(offset: number, info: TweenInfo)
+		local last: Tween? = nil
+		for _, part in moving do
+			local tween = TweenService:Create(part, info, { CFrame = rest[part] - Vector3.new(0, offset, 0) })
+			tween:Play()
+			last = tween
+		end
+		if last then
+			last.Completed:Wait()
+		end
+	end
+	local dropInfo = TweenInfo.new(p.dropTime, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+	local riseInfo = TweenInfo.new(p.riseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+	task.spawn(function()
+		while sleeve.Parent do
+			task.wait(p.upHold)
+			slide(p.drop, dropInfo)
+			task.wait(p.downHold)
+			slide(0, riseInfo)
+		end
+	end)
+end
+
+-- Lava puddle with crust plates and a few embers.
+local function buildLava(model: Model, ped: Pedestal, _arrival: Vector3)
+	local l = TUNING.LAVA
+	local base = ped.discTop
+
+	local disc = MapKit.disc(CFrame.new(base + Vector3.new(0, l.disc.thickness / 2, 0)), l.disc.radius, l.disc.thickness, neon("LavaDisc", Config.MAP.LAVA_CORE))
+	disc.Parent = model
+	MapKit.pointLight(disc, Config.MAP.LAVA_LIGHT, l.light.brightness, l.light.range)
+	embers(disc, l.emberRate, l.emberSize)
+
+	for _, plate in l.plates do
+		local x, z, yaw, sizeX, sizeZ = plate[1], plate[2], plate[3], plate[4], plate[5]
+		MapKit.block(
+			CFrame.new(base + Vector3.new(x, l.plateY, z)) * CFrame.Angles(0, math.rad(yaw), 0),
+			Vector3.new(sizeX, l.plateThickness, sizeZ),
+			ghost(solid("CrustPlate", Config.MAP.LAVA_CRUST))
+		).Parent = model
+	end
+end
+
+-- Mini jib: truss post, arm toward the arrival, camera head spotting its own disc.
+local function buildPitCam(model: Model, ped: Pedestal, _arrival: Vector3)
+	local c = TUNING.PITCAM
+	local floorCF = ped.floorCF
+	local discLift = ped.discTop.Y - floorCF.Position.Y
+
+	MapKit.truss(trussProps("PitCamPost", c.postSize, floorCF * CFrame.new(0, discLift + c.postSize.Y / 2, 0), Config.MAP.FIXTURE_GREY)).Parent = model
+	MapKit.block(floorCF * CFrame.new(c.armOffset), c.armSize, housing("PitCamArm")).Parent = model
+
+	local headCF = CFrame.lookAt((floorCF * CFrame.new(c.headOffset)).Position, ped.discTop)
+	local head = MapKit.block(headCF, c.headSize, housing("PitCamHead"))
+	head.Parent = model
+	MapKit.spotLight(head, Enum.NormalId.Front, Config.MAP.KEY_WHITE, c.spot.angle, c.spot.brightness, c.spot.range)
+
+	-- Lens barrel along the look (the cylinder axis is local Y; tip it onto -Z).
+	MapKit.cylinder(headCF * CFrame.new(0, 0, -c.lens.offset) * CFrame.Angles(-math.pi / 2, 0, 0), c.lens.length, c.lens.radius, housing("PitCamLens")).Parent =
+		model
+
+	local tally = MapKit.block(headCF * CFrame.new(0, c.headSize.Y / 2 + c.tally / 2, 0), Vector3.one * c.tally, neon("PitCamTally", Config.DEBRIS_COLOR))
+	tally.Parent = model
+	MapKit.blink(tally, c.blink.period, c.blink.maxT)
+end
+
+-- Mini truss rig: a color spot and a key spot pooling on the disc.
+local function buildRig(model: Model, ped: Pedestal, _arrival: Vector3)
+	local r = TUNING.RIG
+	local floorCF = ped.floorCF
+	local discLift = ped.discTop.Y - floorCF.Position.Y
+
+	for _, s in { -1, 1 } do
+		MapKit.block(floorCF * CFrame.new(s * r.postX, discLift + r.postSize.Y / 2, 0), r.postSize, solid("RigPost", Config.MAP.STUDIO_GREY)).Parent = model
+	end
+	-- Truss long axis is Z; turn it onto the pedestal's X.
+	MapKit.truss(trussProps("RigTruss", r.trussSize, floorCF * CFrame.new(0, r.trussY, 0) * CFrame.Angles(0, math.pi / 2, 0), Config.MAP.STUDIO_GREY)).Parent =
+		model
+
+	local fixtures = {
+		{ x = -r.fixtureX, color = Config.PLATFORM_COLORS[1], spot = r.colorSpot },
+		{ x = r.fixtureX, color = Config.MAP.KEY_WHITE, spot = r.keySpot },
+	}
+	for _, f in fixtures do
+		local pos = (floorCF * CFrame.new(f.x, r.fixtureY, 0)).Position
+		local fixture = MapKit.block(CFrame.lookAt(pos, ped.discTop), r.fixtureSize, housing("SpotFixture"))
+		fixture.Parent = model
+		MapKit.spotLight(fixture, Enum.NormalId.Front, f.color, f.spot.angle, f.spot.brightness, f.spot.range)
+	end
+end
+
+local EXHIBIT_BUILDERS: { [string]: (Model, Pedestal, Vector3) -> () } = {
+	Debris = buildDebris,
+	Platform = buildPlatform,
+	Tower = buildTower,
+	Lava = buildLava,
+	PitCam = buildPitCam,
+	Piston = buildPiston,
+	Rig = buildRig,
+}
+
+---------------------------------------------------------------------------
+-- Return gate, pad and the data line to the hub (8 parts)
+---------------------------------------------------------------------------
+
+local function buildReturn(model: Model, S: Vector3, parent: Instance)
+	MapKit.teleportPad(model, CFrame.new(S + TUNING.PAD_OFFSET), "BACK TO HUB", "Hub", Config.DEBRIS_COLOR)
+
+	local g = TUNING.GATE
+	local gateX = S.X + g.x
+	local pillarY = S.Y + g.pillar.Y / 2
+	for _, s in { -1, 1 } do
+		MapKit.block(CFrame.new(gateX, pillarY, S.Z + s * g.pillarZ), g.pillar, solid("GatePillar", Config.MAP.VOID_BLACK)).Parent = model
+		-- Neon on the pillar's inner face.
+		local innerZ = S.Z + s * (g.pillarZ - g.pillar.Z / 2 - g.neonPillar.Z / 2)
+		MapKit.block(CFrame.new(gateX, pillarY, innerZ), g.neonPillar, neon("GateNeon", Config.DEBRIS_COLOR)).Parent = model
+	end
+
+	local lintel = MapKit.block(CFrame.new(gateX, S.Y + g.pillar.Y + g.lintel.Y / 2, S.Z), g.lintel, solid("GateLintel", Config.MAP.VOID_BLACK))
+	lintel.Parent = model
+	-- +X faces the room, where visitors read it on their way out.
+	MapKit.surfaceText(lintel, Enum.NormalId.Right, "BACK TO HUB", { TextColor3 = Config.DEBRIS_COLOR })
+	MapKit.block(CFrame.new(gateX, S.Y + g.pillar.Y - g.neonLintel.Y / 2, S.Z), g.neonLintel, neon("GateNeon", Config.DEBRIS_COLOR)).Parent = model
+
+	-- Data line to the hub gate. Hub.build runs first and leaves its LinkA
+	-- attachment under `parent`; without it there is simply no beam.
+	local linkB = Instance.new("Attachment")
+	linkB.Name = "LinkB"
+	linkB.Parent = lintel
+	local linkA = parent:FindFirstChild("LinkA", true)
+	if linkA and linkA:IsA("Attachment") then
+		local beam = Instance.new("Beam")
+		beam.Name = "LinkBeam"
+		beam.Attachment0 = linkB
+		beam.Attachment1 = linkA
+		beam.Color = ColorSequence.new(Config.MAP.ELECTRIC_CYAN)
+		beam.Width0 = TUNING.LINK_BEAM.width
+		beam.Width1 = TUNING.LINK_BEAM.width
+		beam.Transparency = NumberSequence.new(TUNING.LINK_BEAM.transparency)
+		beam.LightEmission = 1
+		beam.LightInfluence = 0
+		beam.FaceCamera = true
+		beam.Segments = 1
+		beam.Parent = lintel
+	end
+end
+
+---------------------------------------------------------------------------
+
+function Showcase.build(parent: Instance): Result
+	local S = Config.ARENA_CENTER + Config.SHOWCASE_OFFSET
+	local arrival = S + TUNING.ARRIVAL
+	local model = MapKit.model("Showcase", parent)
+
+	buildRoom(model, S)
+
+	for _, spec in TUNING.EXHIBITS do
+		local pedestal = buildPedestal(model, arrival, spec)
+		hangSpotHead(model, S, pedestal.discTop)
+		local build = EXHIBIT_BUILDERS[spec.key]
+		if build then
+			build(model, pedestal, arrival)
+		end
+	end
+
+	buildReturn(model, S, parent)
+
+	-- Arrival marker: a dim ring on the floor, not a pad.
+	local marker = TUNING.ARRIVAL_MARKER
+	MapKit.disc(CFrame.new(arrival + Vector3.new(0, marker.lift, 0)), marker.radius, marker.thickness, neon("ArrivalMarker", Config.MAP.GRID_CYAN)).Parent =
+		model
+
+	-- Visitors arrive facing the hero pedestal straight ahead (+X).
+	local stand = arrival + Vector3.new(0, TUNING.STAND_HEIGHT, 0)
+	return { spawnCFrame = CFrame.lookAt(stand, stand + Vector3.new(TUNING.ARC_RADIUS, 0, 0)) }
 end
 
 return Showcase
@@ -2633,12 +4357,239 @@ _Repo file: `src/server/Map/Towers.luau`_
 
 ```lua
 --!strict
--- Tall mono-colored towers around the arena, in the debris color. Interim: none.
+-- Nine tall towers fanning around the stage behind the pit, "made of ball":
+-- every part reads Config.DEBRIS_COLOR at build time. Also the overhead truss
+-- rig (16-gon of trusses, a colored spot and a white key on every deck) and
+-- the PIT CAM jib hanging over the lava. Builds models "Towers" and "Rig"
+-- under `parent`; the rig lives here because it only needs Config.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
+local Config = require(Shared.Config)
+local MapKit = require(script.Parent.MapKit)
 
 local Towers = {}
 
+type TowerSpec = { name: string, x: number, z: number, height: number }
+type SpotSpec = { angle: number, brightness: number, range: number }
+
+-- X/Z are relative to the pit center (Config.ARENA_CENTER); Y values are world.
+local TUNING = {
+	-- Stage top the towers stand on (Pit's StageGround).
+	STAGE_TOP_Y = 36, -- PLACEHOLDER
+	-- Base center and body height per tower. The fan rises toward the back of
+	-- the set (T8 tallest, dead center behind the pit); the 90-degree slot
+	-- between hub and pit stays empty. Bodies must stay outside |X| <= 32 near
+	-- the hub (sight fan) and outside radius 40 (hex columns).
+	TOWERS = { -- PLACEHOLDER
+		{ name = "T1", x = 78, z = 0, height = 85 },
+		{ name = "T2", x = 67.5, z = 39, height = 75 },
+		{ name = "T3", x = 44, z = 70, height = 65 },
+		{ name = "T4", x = -44, z = 70, height = 65 },
+		{ name = "T5", x = -67.5, z = 39, height = 75 },
+		{ name = "T6", x = -78, z = 0, height = 85 },
+		{ name = "T7", x = -58, z = -58, height = 95 },
+		{ name = "T8", x = 0, z = -78, height = 110 },
+		{ name = "T9", x = 58, z = -58, height = 95 },
+	},
+	PLINTH_RADIUS = 6, -- PLACEHOLDER
+	PLINTH_HEIGHT = 2, -- PLACEHOLDER: top at 38, under the kill line (40)
+	BODY_RADIUS = 4, -- PLACEHOLDER
+	RING_RADIUS = 4.5, -- PLACEHOLDER
+	RING_THICKNESS = 0.7, -- PLACEHOLDER
+	RING_SPACING = 20, -- PLACEHOLDER: first ring this far above the plinth, then one per spacing below the top
+	CAP_RADIUS = 4.6, -- PLACEHOLDER
+	CAP_THICKNESS = 1.6, -- PLACEHOLDER
+	PLINTH_LIGHT = { brightness = 1.5, range = 30 }, -- PLACEHOLDER: magenta pool on the stage
+	-- No cap PointLight: the Neon cap and the searchlight Beam (LightEmission 1)
+	-- carry the glow, keeping the module at 18 lights and magenta off the hub.
+	SEARCHLIGHT = { height = 140, width0 = 7, width1 = 0.5 }, -- PLACEHOLDER: beam rising from each cap
+
+	-- Truss ring over the arena.
+	RIG_RADIUS = 51, -- PLACEHOLDER: clears the hex columns (r <= 40)
+	RIG_Y = 104, -- PLACEHOLDER: ring bottom 103, above the throw apex (~94) and every hub sight line
+	RIG_SEGMENTS = 16, -- PLACEHOLDER
+	TRUSS_SIZE = Vector3.new(2, 2, 20), -- PLACEHOLDER: Z ~ chord length; every axis a multiple of 2
+	JOINT_SIZE = 1.6, -- PLACEHOLDER: neon cube hiding each segment overlap
+	FIXTURE_Y = 102.2, -- PLACEHOLDER: fixtures hang under the odd vertices
+	FIXTURE_SIZE = Vector3.new(1.4, 1.4, 2.2), -- PLACEHOLDER
+	FIXTURE_OFFSET_DEG = 22.5, -- PLACEHOLDER: color spot at slot angle - this, key spot at slot angle + this
+	COLOR_SPOT = { angle = 38, brightness = 5, range = 60 }, -- PLACEHOLDER
+	KEY_SPOT = { angle = 48, brightness = 3, range = 60 }, -- PLACEHOLDER
+
+	-- PIT CAM jib: arm from the 270-degree joint inward over the pit, head
+	-- hanging under its end, aimed at the LavaHeart.
+	JIB_ARM_CENTER = Vector3.new(0, 104, -35), -- PLACEHOLDER: spans Z -51..-19; |X| <= 1 clears the hex corners at 8.2
+	JIB_ARM_SIZE = Vector3.new(2, 2, 32), -- PLACEHOLDER
+	JIB_HEAD_POSITION = Vector3.new(0, 102.5, -18), -- PLACEHOLDER
+	JIB_HEAD_SIZE = Vector3.new(3, 2.5, 4), -- PLACEHOLDER
+	JIB_TARGET_Y = 15.65, -- PLACEHOLDER: LavaHeart top (Pit P3); the head looks at it
+	LENS_RADIUS = 1.2, -- PLACEHOLDER
+	LENS_LENGTH = 2.5, -- PLACEHOLDER
+	LENS_OFFSET = 3, -- PLACEHOLDER: lens center ahead of the head center, along the look
+	TALLY_SIZE = 0.6, -- PLACEHOLDER
+	TALLY_OFFSET = Vector3.new(0, 1.55, 0.5), -- PLACEHOLDER: head-local, on the head top
+	-- The head is ~89 studs from the heart, beyond a light's 60-stud Range cap,
+	-- so the spot itself sits on an invisible emitter straight above the heart
+	-- (top of the LavaHeart + 56 studs), pointing down. At Angle 22 the pool
+	-- radius is ~11.7 studs, matching the 12-stud heart.
+	PITCAM_EMITTER_Y = 72, -- PLACEHOLDER: world Y of the invisible spot emitter over the pit center
+	PITCAM_SPOT = { angle = 22, brightness = 2, range = 60 }, -- PLACEHOLDER: Range 60 is the Roblox maximum
+	TALLY_BLINK = { period = 1.2, maxT = 0.7 }, -- PLACEHOLDER
+}
+
+-- Trim nothing may rest on (rings, caps, joints, tally): never collidable,
+-- never queried, never touched, no shadow.
+local function trim(props: MapKit.Props): MapKit.Props
+	props.CanCollide = false
+	props.CanQuery = false
+	props.CanTouch = false
+	props.CastShadow = false
+	return props
+end
+
+local function towerProps(name: string, material: Enum.Material): MapKit.Props
+	return { Name = name, Color = Config.DEBRIS_COLOR, Material = material }
+end
+
+local function housing(name: string): MapKit.Props
+	return { Name = name, Color = Config.MAP.FIXTURE_GREY, Material = Enum.Material.SmoothPlastic }
+end
+
+local function trussProps(name: string, size: Vector3, cf: CFrame): MapKit.Props
+	return {
+		Name = name,
+		Size = size,
+		CFrame = cf,
+		Style = Enum.Style.BridgeStyleSupports,
+		Color = Config.MAP.STUDIO_GREY,
+		Material = Enum.Material.SmoothPlastic,
+	}
+end
+
+-- Plinth, body, rings, cap (+ plinth/cap lights and the searchlight beam).
+local function buildTower(spec: TowerSpec, parent: Instance)
+	local c = Config.ARENA_CENTER
+	local trimMaterial = if Config.TOWER_NEON_TRIM then Enum.Material.Neon else Config.DEBRIS_MATERIAL
+	local tower = MapKit.model(spec.name, parent)
+	local x, z = c.X + spec.x, c.Z + spec.z
+	local base = Vector3.new(x, TUNING.STAGE_TOP_Y, z)
+	local bodyBase = base + Vector3.new(0, TUNING.PLINTH_HEIGHT, 0)
+	local top = bodyBase.Y + spec.height
+
+	local plinth = MapKit.column(base, TUNING.PLINTH_HEIGHT, TUNING.PLINTH_RADIUS, towerProps("Plinth", Config.DEBRIS_MATERIAL))
+	plinth.Parent = tower
+	MapKit.pointLight(plinth, Config.DEBRIS_COLOR, TUNING.PLINTH_LIGHT.brightness, TUNING.PLINTH_LIGHT.range)
+
+	-- The body collides: stray debris bounces off and dies below the kill line.
+	MapKit.column(bodyBase, spec.height, TUNING.BODY_RADIUS, towerProps("Body", Config.DEBRIS_MATERIAL)).Parent = tower
+
+	-- Rings up the body, stopping short of the cap.
+	local y = bodyBase.Y + TUNING.RING_SPACING
+	while y < top do
+		MapKit.disc(CFrame.new(x, y, z), TUNING.RING_RADIUS, TUNING.RING_THICKNESS, trim(towerProps("Ring", trimMaterial))).Parent = tower
+		y += TUNING.RING_SPACING
+	end
+
+	local cap = MapKit.disc(
+		CFrame.new(x, top + TUNING.CAP_THICKNESS / 2, z),
+		TUNING.CAP_RADIUS,
+		TUNING.CAP_THICKNESS,
+		trim(towerProps("Cap", trimMaterial))
+	)
+	cap.Parent = tower
+	-- After parenting: the beam's top attachment is placed in world space.
+	MapKit.beamUp(cap, TUNING.SEARCHLIGHT.height, TUNING.SEARCHLIGHT.width0, TUNING.SEARCHLIGHT.width1, Config.DEBRIS_COLOR)
+end
+
+-- Truss ring with its joints and spot fixtures, plus the PIT CAM jib.
+local function buildRig(parent: Instance)
+	local c = Config.ARENA_CENTER
+	local flat = Vector3.new(c.X, 0, c.Z)
+	local model = MapKit.model("Rig", parent)
+
+	local function onRing(angleDeg: number, y: number): Vector3
+		local a = math.rad(angleDeg)
+		return Vector3.new(c.X + math.cos(a) * TUNING.RIG_RADIUS, y, c.Z + math.sin(a) * TUNING.RIG_RADIUS)
+	end
+
+	-- Polygon of trusses, each running along its chord; a neon joint cube at
+	-- every vertex hides where the segments overlap.
+	local step = 360 / TUNING.RIG_SEGMENTS
+	for k = 0, TUNING.RIG_SEGMENTS - 1 do
+		local a, b = onRing(k * step, TUNING.RIG_Y), onRing((k + 1) * step, TUNING.RIG_Y)
+		MapKit.truss(trussProps("TrussRing", TUNING.TRUSS_SIZE, CFrame.lookAt((a + b) / 2, b))).Parent = model
+		MapKit.block(CFrame.new(a), Vector3.one * TUNING.JOINT_SIZE, trim({
+			Name = "TrussJoint",
+			Color = Config.MAP.ELECTRIC_CYAN,
+			Material = Enum.Material.Neon,
+		})).Parent = model
+	end
+
+	local function spotFixture(angleDeg: number, target: Vector3, color: Color3, spot: SpotSpec)
+		local fixture = MapKit.block(CFrame.lookAt(onRing(angleDeg, TUNING.FIXTURE_Y), target), TUNING.FIXTURE_SIZE, housing("SpotFixture"))
+		fixture.Parent = model
+		MapKit.spotLight(fixture, Enum.NormalId.Front, color, spot.angle, spot.brightness, spot.range)
+	end
+
+	-- A colored spot and a white key on every deck, from the odd vertices either
+	-- side of the slot angle (same slot math as Arena.buildPlatform).
+	for slot = 1, Config.MAX_PLAYERS do
+		local slotAngle = 45 + 90 * (slot - 1)
+		local a = math.rad(slotAngle)
+		local deck = c + Vector3.new(math.cos(a), 0, math.sin(a)) * Config.ARENA_RADIUS
+		spotFixture(slotAngle - TUNING.FIXTURE_OFFSET_DEG, deck, Config.PLATFORM_COLORS[slot], TUNING.COLOR_SPOT)
+		spotFixture(slotAngle + TUNING.FIXTURE_OFFSET_DEG, deck, Config.MAP.KEY_WHITE, TUNING.KEY_SPOT)
+	end
+
+	-- PIT CAM: the head/lens/tally hang under the jib looking at the LavaHeart;
+	-- the spot that pools on the heart is emitted from closer in (see below).
+	local jib = MapKit.model("PitCam", model)
+	MapKit.truss(trussProps("PitCamArm", TUNING.JIB_ARM_SIZE, CFrame.new(flat + TUNING.JIB_ARM_CENTER))).Parent = jib
+
+	local target = flat + Vector3.new(0, TUNING.JIB_TARGET_Y, 0)
+	local headCF = CFrame.lookAt(flat + TUNING.JIB_HEAD_POSITION, target)
+	local head = MapKit.block(headCF, TUNING.JIB_HEAD_SIZE, housing("PitCamHead"))
+	head.Parent = jib
+	MapKit.surfaceText(head, Enum.NormalId.Right, "PIT CAM", {
+		Font = Enum.Font.Gotham,
+		TextColor3 = Config.MAP.ELECTRIC_CYAN,
+	})
+
+	-- Lens barrel along the look (the cylinder axis is local Y; tip it onto -Z).
+	MapKit.cylinder(
+		headCF * CFrame.new(0, 0, -TUNING.LENS_OFFSET) * CFrame.Angles(-math.pi / 2, 0, 0),
+		TUNING.LENS_LENGTH,
+		TUNING.LENS_RADIUS,
+		housing("PitCamLens")
+	).Parent = jib
+
+	local tally = MapKit.block(headCF * CFrame.new(TUNING.TALLY_OFFSET), Vector3.one * TUNING.TALLY_SIZE, trim({
+		Name = "PitCamTally",
+		Color = Config.DEBRIS_COLOR,
+		Material = Enum.Material.Neon,
+	}))
+	tally.Parent = jib
+	MapKit.blink(tally, TUNING.TALLY_BLINK.period, TUNING.TALLY_BLINK.maxT)
+
+	-- The spot's real source: an invisible, untouchable 1-stud part in the open
+	-- pit column, within Range of the heart. Nothing plays there (debris falls
+	-- over the decks, players drop through the pit), so it never gets in the way.
+	local emitter = MapKit.block(CFrame.new(flat + Vector3.new(0, TUNING.PITCAM_EMITTER_Y, 0)), Vector3.one, trim({
+		Name = "PitCamSpot",
+		Transparency = 1,
+	}))
+	emitter.Parent = jib
+	MapKit.spotLight(emitter, Enum.NormalId.Bottom, Config.MAP.KEY_WHITE, TUNING.PITCAM_SPOT.angle, TUNING.PITCAM_SPOT.brightness, TUNING.PITCAM_SPOT.range)
+end
+
 function Towers.build(parent: Instance)
-	local _ = parent
+	local towers = MapKit.model("Towers", parent)
+	for _, spec in TUNING.TOWERS do
+		buildTower(spec, towers)
+	end
+	buildRig(parent)
 end
 
 return Towers
@@ -2746,6 +4697,11 @@ local function track(instance: Instance)
 	local visual: BasePart? = nil
 	if debris:GetAttribute("Visual") == "Client" then
 		local clone = getTemplate():Clone()
+		-- Display pieces (showcase) can ask for a bigger d10.
+		local scale = debris:GetAttribute("VisualScale")
+		if typeof(scale) == "number" and scale > 0 and scale ~= 1 then
+			clone.Size = clone.Size * scale
+		end
 		clone.CFrame = debris.CFrame
 		clone.Parent = folder
 		visual = clone

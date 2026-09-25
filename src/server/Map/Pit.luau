@@ -23,7 +23,7 @@ local TUNING = {
 	LAVA_HEART_RADIUS = 12, -- PLACEHOLDER: where the PIT CAM spot pools
 	HOT_SPOT_RADIUS = 14, -- PLACEHOLDER
 	HOT_SPOTS = { Vector2.new(30, -18), Vector2.new(-26, 28) }, -- PLACEHOLDER: XZ centers
-	EMBER_RATE = 30, -- PLACEHOLDER: embers per second rising off the core
+	EMBER_RATE = 15, -- PLACEHOLDER: embers per second rising off the core (2-4 s lifetime keeps ~45 aloft)
 	-- Crust plates floating on the core: {x, z, yawDeg, sizeX, sizeZ}. Every plate
 	-- clears the sleeves by at least a stud and stays inside the crater (r < 67.8).
 	CRUST_THICKNESS = 0.4, -- PLACEHOLDER
@@ -294,7 +294,8 @@ function Pit.build(parent: Instance)
 		).Parent = model
 	end)
 
-	-- P10 lit rim posts on the octagon vertices.
+	-- P10 rim posts on the octagon vertices; every other one carries a light
+	-- (the pit's light budget is 12: lava 1, heat rings 4, rim 4, backdrop 3).
 	local vertexRadius = hole / math.cos(math.rad(22.5))
 	for k = 0, 7 do
 		local a = math.rad(22.5 + 45 * k)
@@ -304,7 +305,9 @@ function Pit.build(parent: Instance)
 			ghost("RimPost", Config.MAP.ELECTRIC_CYAN, Enum.Material.Neon)
 		)
 		post.Parent = model
-		MapKit.pointLight(post, Config.MAP.ELECTRIC_CYAN, 1.5, 25)
+		if k % 2 == 0 then
+			MapKit.pointLight(post, Config.MAP.ELECTRIC_CYAN, 1.5, 25)
+		end
 	end
 
 	-- P11 stage: four slabs around a square hole, plus one wedge per corner
@@ -358,7 +361,7 @@ function Pit.build(parent: Instance)
 	end)
 
 	-- P14 corner posts, all full height so the skyline steps between them;
-	-- every other one carries a light.
+	-- every fourth one carries a light.
 	local postRadius = TUNING.BACKDROP_APOTHEM / math.cos(math.rad(15))
 	local postHeight = math.max(TUNING.BACKDROP_HEIGHTS[1], TUNING.BACKDROP_HEIGHTS[2])
 	for k = 0, 11 do
@@ -369,7 +372,7 @@ function Pit.build(parent: Instance)
 			ghost("BackdropCornerPost", Config.MAP.ELECTRIC_CYAN, Enum.Material.Neon)
 		)
 		post.Parent = model
-		if k % 2 == 0 then
+		if k % 4 == 0 then
 			MapKit.pointLight(post, POST_LIGHT, 1, 40)
 		end
 	end
