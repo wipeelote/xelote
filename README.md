@@ -8,6 +8,16 @@ platform. The last platform standing wins.
 
 ## Getting it into Studio
 
+Pick whichever is easiest:
+
+- **Paste into another Claude / by hand:** [`STUDIO_BUILD.md`](STUDIO_BUILD.md) holds every script with its exact
+  Studio location and class, plus build instructions.
+- **One paste in Studio:** paste [`studio-installer.luau`](studio-installer.luau) into the Command Bar
+  (View → Command Bar) and press Enter. It creates all 16 scripts.
+- **Rojo** (for editing in the repo), described below.
+
+Both paste files are generated from `src/`. After changing code, run `python3 tools/build_paste_doc.py`.
+
 This is a [Rojo](https://rojo.space) project.
 
 ```sh
@@ -32,14 +42,33 @@ unavailable, debris falls back to a sphere with a warning. To avoid the dependen
 | `src/shared/Config.luau` | both | **Every tunable value** |
 | `src/shared/HexGeometry.luau` | both | Hex corners, point-in-hex, random spawn point |
 | `src/shared/DecahedronMesh.luau` | both | Pentagonal trapezohedron via EditableMesh / asset |
+| `src/shared/Ballistics.luau` | both | Throw arc math shared by the server launch and the client aim preview |
 | `src/shared/Remotes.luau` | both | RemoteEvent definitions |
-| `src/server/Arena.luau` | server | (1) Hex platforms, piston rods, pit, lobby, ring-meter SurfaceGui, piston tween |
+| `src/server/Arena.luau` | server | (1) Hex platforms, piston rods, pit, spawn hub, ring-meter SurfaceGui, piston tween |
 | `src/server/DebrisService.luau` | server | (2) Spawner, partial-gravity physics, landing detection |
 | `src/server/ThrowService.luau` | server | (3) ProximityPrompt pickup, validated throw remote, knockback |
 | `src/server/LoadService.luau` | server | (4) `platformLoads[player]`, elimination |
 | `src/server/RateLimiter.luau` | server | (5) Per-player token bucket for remotes |
 | `src/server/Main.server.luau` | server | Spawning and round loop |
-| `src/client/*` | client | Ring animation, local d10 visuals, throw input and knockback, HUD |
+| `src/client/InteractionController.luau` | client | Grab/throw action button, key and gamepad bindings, aim arc, knockback |
+| `src/client/*` (others) | client | Ring animation, local d10 visuals, status HUD |
+
+## Controls
+
+| Action | Keyboard/Mouse | Gamepad | Touch |
+|---|---|---|---|
+| Grab debris within 5 studs | `E`, or click GRAB | `X` | Tap GRAB |
+| Throw | Left click (aims at cursor), or click THROW | `R2` (aims at screen center) | Tap THROW (aims at screen center) |
+
+While you hold debris, a dotted arc previews the exact server trajectory. Green means in range,
+orange means out of range.
+
+## Spawn hub
+
+Players spawn on a raised overlook 95 studs from the pit and 28 studs above the platforms, facing
+the arena. A glass front rail and a status scoreboard sit on the back wall. The pit kill line
+applies only inside the arena column (`ARENA_KILL_RADIUS`) and to players still in the round.
+Spectators who fall off the hub are teleported back instead of killed.
 
 ## How the pieces fit
 

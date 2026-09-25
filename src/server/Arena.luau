@@ -1,6 +1,6 @@
 --!strict
 -- Builds the arena: 4 hexagonal platforms on piston rods around a central pit,
--- a ring-meter SurfaceGui on each deck, and a lobby with its own SpawnLocation.
+-- a ring-meter SurfaceGui on each deck, and a raised spawn hub overlooking it all.
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -22,7 +22,9 @@ export type Platform = {
 
 Arena.platforms = {} :: { Platform }
 Arena.folder = nil :: Folder?
-Arena.lobbySpawn = nil :: SpawnLocation?
+Arena.hubSpawn = nil :: SpawnLocation?
+Arena.hubFloorY = 0
+Arena.boardStatus = nil :: TextLabel?
 
 local PLATFORM_TAG = "DebrisClearPlatform"
 
@@ -277,7 +279,7 @@ local function buildPlatform(slot: number, parent: Instance): Platform
 	}
 end
 
-local function buildPitAndLobby(parent: Instance)
+local function buildPit(parent: Instance)
 	local c = Config.ARENA_CENTER
 	local floor = anchoredPart("Part", {
 		Name = "PitFloor",
@@ -300,36 +302,133 @@ local function buildPitAndLobby(parent: Instance)
 	glow.CFrame = CFrame.new(c.X, c.Y - Config.PIT_DEPTH + 0.1, c.Z) * CFrame.Angles(0, 0, math.rad(90))
 	glow.Parent = parent
 
-	local lobby = anchoredPart("Part", {
-		Name = "LobbyFloor",
-		Size = Vector3.new(60, 2, 60),
-		Color = Color3.fromRGB(60, 62, 70),
+end
+
+-- Raised overlook hub facing the pit: the only enabled SpawnLocation, well
+-- outside the arena kill column, with a glass front rail and a status board.
+local function buildHub(parent: Instance)
+	local c = Config.ARENA_CENTER
+	local top = c + Config.HUB_OFFSET
+	-- -Z faces the arena, so "front" is the edge overlooking the pit.
+	local hubCFrame = CFrame.lookAt(top, Vector3.new(c.X, top.Y, c.Z))
+	local W, D, H = Config.HUB_SIZE.X, Config.HUB_SIZE.Z, Config.HUB_RAIL_HEIGHT
+
+	local model = Instance.new("Model")
+	model.Name = "SpawnHub"
+
+	local floor = anchoredPart("Part", {
+		Name = "HubFloor",
+		Size = Config.HUB_SIZE,
+		Color = Color3.fromRGB(58, 60, 68),
 		Material = Enum.Material.Concrete,
 	})
-	lobby.CFrame = CFrame.new(Config.LOBBY_POSITION - Vector3.new(0, 1, 0))
-	lobby.Parent = parent
+	floor.CFrame = hubCFrame * CFrame.new(0, -Config.HUB_SIZE.Y / 2, 0)
+	floor.Parent = model
 
-	-- Our spawn is the only enabled one so nobody spawns inside the pit.
+	local function rail(name: string, size: Vector3, offset: CFrame, glass: boolean)
+		local part = anchoredPart("Part", {
+			Name = name,
+			Size = size,
+			Color = if glass then Color3.fromRGB(170, 210, 255) else Color3.fromRGB(80, 82, 92),
+			Material = if glass then Enum.Material.Glass else Enum.Material.Metal,
+			Transparency = if glass then 0.7 else 0,
+		})
+		part.CFrame = hubCFrame * offset
+		part.Parent = model
+		return part
+	end
+	rail("FrontRail", Vector3.new(W, H, 0.5), CFrame.new(0, H / 2, -D / 2 + 0.25), true)
+	rail("LeftRail", Vector3.new(0.5, H, D), CFrame.new(-W / 2 + 0.25, H / 2, 0), false)
+	rail("RightRail", Vector3.new(0.5, H, D), CFrame.new(W / 2 - 0.25, H / 2, 0), false)
+
+	-- Neon trim along the overlook edge.
+	local trim = anchoredPart("Part", {
+		Name = "EdgeTrim",
+		Size = Vector3.new(W, 0.3, 0.6),
+		Color = Color3.fromRGB(255, 120, 40),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+	})
+	trim.CFrame = hubCFrame * CFrame.new(0, H + 0.15, -D / 2 + 0.25)
+	trim.Parent = model
+
+	-- Back wall doubles as a scoreboard, readable from the hub and the platforms.
+	local boardHeight = 16
+	local board = anchoredPart("Part", {
+		Name = "StatusBoard",
+		Size = Vector3.new(W, boardHeight, 1),
+		Color = Color3.fromRGB(28, 28, 34),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	board.CFrame = hubCFrame * CFrame.new(0, boardHeight / 2, D / 2 - 0.5)
+	board.Parent = model
+	local boardGui = Instance.new("SurfaceGui")
+	boardGui.Name = "Board"
+	boardGui.Face = Enum.NormalId.Front
+	boardGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	boardGui.PixelsPerStud = 20
+	boardGui.LightInfluence = 0
+	boardGui.Parent = board
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.fromScale(1, 0.45)
+	title.Font = Enum.Font.GothamBlack
+	title.TextScaled = true
+	title.TextColor3 = Color3.fromRGB(255, 140, 50)
+	title.Text = "DEBRIS CLEAR"
+	title.Parent = boardGui
+	local statusText = title:Clone()
+	statusText.Name = "Status"
+	statusText.Position = UDim2.fromScale(0.05, 0.5)
+	statusText.Size = UDim2.fromScale(0.9, 0.35)
+	statusText.Font = Enum.Font.GothamBold
+	statusText.TextColor3 = Color3.new(1, 1, 1)
+	statusText.Text = ""
+	statusText.Parent = boardGui
+	Arena.boardStatus = statusText
+
+	-- Support pillars down to the ground, purely visual.
+	for _, x in { -W / 3, W / 3 } do
+		local pillarHeight = top.Y
+		local pillar = anchoredPart("Part", {
+			Name = "Pillar",
+			Size = Vector3.new(4, pillarHeight, 4),
+			Color = Color3.fromRGB(70, 70, 78),
+			Material = Enum.Material.Metal,
+		})
+		pillar.CFrame = hubCFrame * CFrame.new(x, -Config.HUB_SIZE.Y - pillarHeight / 2, 0)
+		pillar.Parent = model
+	end
+
+	-- Ours is the only enabled spawn, so nobody spawns inside the pit.
 	for _, d in workspace:GetDescendants() do
 		if d:IsA("SpawnLocation") then
 			d.Enabled = false
 		end
 	end
 	local spawn = Instance.new("SpawnLocation")
-	spawn.Name = "LobbySpawn"
+	spawn.Name = "HubSpawn"
 	spawn.Anchored = true
 	spawn.Neutral = true
 	spawn.Duration = 0
-	spawn.Size = Vector3.new(8, 1, 8)
-	spawn.CFrame = CFrame.new(Config.LOBBY_POSITION + Vector3.new(0, 0.5, 0))
-	spawn.Parent = parent
-	Arena.lobbySpawn = spawn
+	spawn.Size = Vector3.new(10, 1, 10)
+	spawn.Color = Color3.fromRGB(255, 140, 50)
+	spawn.Material = Enum.Material.SmoothPlastic
+	-- Facing the arena, so players spawn looking out over the pit.
+	spawn.CFrame = hubCFrame * CFrame.new(0, 0.5, D / 4)
+	spawn.Parent = model
+
+	model.Parent = parent
+	Arena.hubSpawn = spawn
+	Arena.hubFloorY = top.Y
 end
 
 function Arena.build()
 	local folder = Instance.new("Folder")
 	folder.Name = "DebrisClearArena"
-	buildPitAndLobby(folder)
+	buildPit(folder)
+	buildHub(folder)
 	for slot = 1, Config.MAX_PLAYERS do
 		table.insert(Arena.platforms, buildPlatform(slot, folder))
 	end
@@ -346,6 +445,26 @@ end
 
 function Arena.killY(): number
 	return Config.ARENA_CENTER.Y - Config.KILL_DEPTH
+end
+
+-- Is this position horizontally inside the pit area, where the kill line applies?
+function Arena.inArenaColumn(position: Vector3): boolean
+	local c = Config.ARENA_CENTER
+	local dx, dz = position.X - c.X, position.Z - c.Z
+	return dx * dx + dz * dz <= Config.ARENA_KILL_RADIUS * Config.ARENA_KILL_RADIUS
+end
+
+-- Where to put someone who wandered off the hub.
+function Arena.hubReturnCFrame(): CFrame
+	local spawn = Arena.hubSpawn :: SpawnLocation
+	return spawn.CFrame * CFrame.new(0, 3.5, 0)
+end
+
+function Arena.setBoardStatus(text: string)
+	local label = Arena.boardStatus
+	if label then
+		label.Text = text
+	end
 end
 
 -- Standing spot for a player on a platform (slightly above the deck).

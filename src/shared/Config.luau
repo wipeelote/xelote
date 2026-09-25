@@ -22,8 +22,20 @@ Config.ARENA_RADIUS = 28 -- PLACEHOLDER: pit center -> platform center distance
 Config.PLATFORM_RADIUS = 12 -- hex circumradius (center -> corner), per spec
 Config.PLATFORM_THICKNESS = 2 -- PLACEHOLDER
 Config.PIT_DEPTH = 45 -- PLACEHOLDER: pit floor sits this far below platform tops
-Config.KILL_DEPTH = 20 -- PLACEHOLDER: anything this far below platform tops is dead/destroyed
-Config.LOBBY_POSITION = Vector3.new(0, 1, 150) -- PLACEHOLDER
+Config.KILL_DEPTH = 20 -- PLACEHOLDER: inside the arena, anything this far below platform tops is dead/destroyed
+-- The kill line only applies inside this horizontal radius around the pit, so
+-- the spectator hub (and anything else outside the arena) is always safe.
+Config.ARENA_KILL_RADIUS = 65 -- PLACEHOLDER
+
+---------------------------------------------------------------------------
+-- Spawn hub (raised overlook facing the arena)
+---------------------------------------------------------------------------
+Config.HUB_OFFSET = Vector3.new(0, 28, 95) -- PLACEHOLDER: hub floor center relative to ARENA_CENTER
+Config.HUB_SIZE = Vector3.new(64, 2, 40) -- PLACEHOLDER: floor size (X wide, Z deep)
+Config.HUB_RAIL_HEIGHT = 4 -- PLACEHOLDER
+-- Falling this far below the hub floor (outside the arena) teleports you back
+-- to the hub instead of killing you.
+Config.HUB_RESCUE_DEPTH = 30 -- PLACEHOLDER
 Config.PLATFORM_COLORS = { -- PLACEHOLDER: one per platform slot
 	Color3.fromRGB(255, 89, 89),
 	Color3.fromRGB(89, 170, 255),
@@ -80,6 +92,8 @@ Config.PICKUP_RANGE = 5 -- per spec
 Config.PICKUP_RANGE_TOLERANCE = 2 -- PLACEHOLDER: server-side slack for latency
 Config.PICKUP_HOLD_DURATION = 0 -- PLACEHOLDER: ProximityPrompt hold time
 Config.PICKUP_KEY = Enum.KeyCode.E
+Config.PICKUP_GAMEPAD_KEY = Enum.KeyCode.ButtonX
+Config.THROW_GAMEPAD_KEY = Enum.KeyCode.ButtonR2
 Config.HOLD_OFFSET = CFrame.new(0, 3.2, 0) -- PLACEHOLDER: held debris position relative to HumanoidRootPart
 Config.THROW_SPEED = 60 -- per spec
 Config.THROW_BOOST_TIME = 0.1 -- PLACEHOLDER: seconds LinearVelocity drives the throw before gravity takes over
@@ -90,6 +104,8 @@ Config.THROW_HIT_WINDOW = 1.5 -- PLACEHOLDER: seconds after a throw that a body 
 Config.KNOCKBACK_SPEED = 40 -- per spec, horizontal studs/s
 Config.KNOCKBACK_UP = 18 -- PLACEHOLDER: small vertical pop so the hit breaks floor friction
 Config.KNOCKBACK_STUN = 0.45 -- PLACEHOLDER: seconds of PlatformStand after a hit
+Config.AIM_ARC_POINTS = 14 -- PLACEHOLDER: dots in the client-side throw preview arc
+Config.AIM_ARC_MAX_TIME = 2 -- PLACEHOLDER: seconds of flight the preview arc covers at most
 
 ---------------------------------------------------------------------------
 -- Networking / validation

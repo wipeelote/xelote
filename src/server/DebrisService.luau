@@ -95,6 +95,11 @@ local function buildTemplate(): BasePart
 	prompt.ActionText = "Pick up"
 	prompt.ObjectText = "Debris"
 	prompt.KeyboardKeyCode = Config.PICKUP_KEY
+	prompt.GamepadKeyCode = Config.PICKUP_GAMEPAD_KEY
+	-- Custom style: the engine still handles key/gamepad input and picks the
+	-- closest prompt in range, but the client draws its own Grab button and
+	-- highlight (see client InteractionController).
+	prompt.Style = Enum.ProximityPromptStyle.Custom
 	prompt.MaxActivationDistance = Config.PICKUP_RANGE
 	prompt.HoldDuration = Config.PICKUP_HOLD_DURATION
 	prompt.RequiresLineOfSight = false

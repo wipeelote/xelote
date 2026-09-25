@@ -24,12 +24,13 @@ local roundActive = false
 
 local function setStatus(text: string)
 	ReplicatedStorage:SetAttribute("DebrisClearStatus", text)
+	Arena.setBoardStatus(text)
 end
 
 ---------------------------------------------------------------------------
--- Spawning: everyone lives in the lobby unless a round puts them on a platform.
+-- Spawning: everyone lives on the hub unless a round puts them on a platform.
 ---------------------------------------------------------------------------
-local function spawnInLobby(player: Player)
+local function spawnInHub(player: Player)
 	if player.Parent ~= Players then
 		return
 	end
@@ -46,7 +47,7 @@ local function onCharacterAdded(player: Player, character: Model)
 		task.delay(Config.RESPAWN_DELAY, function()
 			-- Only respawn if this is still the current character.
 			if player.Character == character and not (roundActive and LoadService.isAlive(player)) then
-				spawnInLobby(player)
+				spawnInHub(player)
 			end
 		end)
 	end)
@@ -56,14 +57,14 @@ Players.PlayerAdded:Connect(function(player)
 	player.CharacterAdded:Connect(function(character)
 		onCharacterAdded(player, character)
 	end)
-	spawnInLobby(player)
+	spawnInHub(player)
 end)
 for _, player in Players:GetPlayers() do
 	task.spawn(function()
 		player.CharacterAdded:Connect(function(character)
 			onCharacterAdded(player, character)
 		end)
-		spawnInLobby(player)
+		spawnInHub(player)
 	end)
 end
 
@@ -81,15 +82,26 @@ LoadService.onEliminated(function(player, platform, reason)
 	end
 end)
 
--- Anyone who drops into the pit is dead, whether or not they're in the round.
+-- Only the pit kills. Below the kill line is death for anyone in the round or
+-- anyone inside the arena column. Spectators who fall off the hub anywhere
+-- else are put back on the hub instead.
 RunService.Heartbeat:Connect(function()
 	local killY = Arena.killY()
+	local rescueY = Arena.hubFloorY - Config.HUB_RESCUE_DEPTH
 	for _, player in Players:GetPlayers() do
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-		if root and humanoid and humanoid.Health > 0 and root.Position.Y < killY then
+		if not (character and root and humanoid) or humanoid.Health <= 0 then
+			continue
+		end
+		local position = root.Position
+		local competing = roundActive and LoadService.isAlive(player)
+		if position.Y < killY and (competing or Arena.inArenaColumn(position)) then
 			humanoid.Health = 0
+		elseif not competing and position.Y < rescueY and not Arena.inArenaColumn(position) then
+			root.AssemblyLinearVelocity = Vector3.zero
+			character:PivotTo(Arena.hubReturnCFrame())
 		end
 	end
 end)
@@ -191,7 +203,7 @@ local function runRound()
 	end
 	for _, player in participants do
 		if player.Parent == Players then
-			task.spawn(spawnInLobby, player)
+			task.spawn(spawnInHub, player)
 		end
 	end
 end

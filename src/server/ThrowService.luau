@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
 local Remotes = require(Shared.Remotes)
+local Ballistics = require(Shared.Ballistics)
 local DebrisService = require(script.Parent.DebrisService)
 local LoadService = require(script.Parent.LoadService)
 local RateLimiter = require(script.Parent.RateLimiter)
@@ -111,30 +112,6 @@ local function tryPickup(player: Player, part: BasePart)
 	setHolding(player, part)
 end
 
--- Launch velocity that lands on `target` given debris gravity, preferring the
--- flatter of the two ballistic arcs. Falls back to a fixed pitch when out of range.
-local function solveLaunch(origin: Vector3, target: Vector3, speed: number): Vector3
-	local g = workspace.Gravity * Config.DEBRIS_GRAVITY_SCALE
-	local delta = target - origin
-	local flat = Vector3.new(delta.X, 0, delta.Z)
-	local x = flat.Magnitude
-	if x < 0.05 then
-		return (if delta.Magnitude > 0.05 then delta.Unit else Vector3.yAxis) * speed
-	end
-	local y = delta.Y
-	local v2 = speed * speed
-	local disc = v2 * v2 - g * (g * x * x + 2 * y * v2)
-	local pitch
-	if g <= 0 then
-		pitch = math.atan2(y, x)
-	elseif disc >= 0 then
-		pitch = math.atan((v2 - math.sqrt(disc)) / (g * x))
-	else
-		pitch = Config.THROW_FALLBACK_PITCH
-	end
-	return flat.Unit * (speed * math.cos(pitch)) + Vector3.yAxis * (speed * math.sin(pitch))
-end
-
 local function onThrowRequest(player: Player, aimPoint: unknown)
 	-- Validation: type, rate, state, then geometry.
 	if typeof(aimPoint) ~= "Vector3" then
@@ -165,7 +142,7 @@ local function onThrowRequest(player: Player, aimPoint: unknown)
 	if toAim.Magnitude > Config.THROW_MAX_AIM_DISTANCE then
 		aim = origin + toAim.Unit * Config.THROW_MAX_AIM_DISTANCE
 	end
-	local velocity = solveLaunch(origin, aim, Config.THROW_SPEED)
+	local velocity = Ballistics.solve(origin, aim, Config.THROW_SPEED)
 
 	local weld = holdWelds[player]
 	holdWelds[player] = nil

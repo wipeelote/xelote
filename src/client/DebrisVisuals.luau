@@ -65,6 +65,11 @@ local function untrack(instance: Instance)
 	end
 end
 
+-- The locally rendered d10 for a server debris part, if it has one.
+function DebrisVisuals.visualFor(debris: BasePart): BasePart?
+	return tracked[debris]
+end
+
 function DebrisVisuals.start()
 	folder = Instance.new("Folder")
 	folder.Name = "DebrisClearLocalVisuals"
