@@ -1,7 +1,12 @@
 --!strict
 -- Pickup (ProximityPrompt) and throw (RemoteEvent). The client only sends an
--- aim point. Everything else (who holds what, where it launches from, how
--- fast, what it hits) is decided here.
+-- aim point. Everything else (who holds what, how long, where it launches
+-- from, how fast, what it hits) is decided here.
+--
+-- Player attributes written here (clients only render them):
+--   HoldingDebris  true while a piece is welded to the player
+--   HoldUntil      server time the held piece auto-drops; nil when not holding
+--   Throwing       true during the wind-up between the throw request and launch
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,11 +20,16 @@ local LoadService = require(script.Parent.LoadService)
 local RateLimiter = require(script.Parent.RateLimiter)
 
 type DebrisRecord = DebrisService.DebrisRecord
+type Windup = { aim: Vector3 }
 
 local ThrowService = {}
 
 local holding: { [Player]: BasePart? } = {}
 local holdWelds: { [Player]: WeldConstraint } = {}
+-- Bumped on every pickup so a hold timer or wind-up from an earlier hold can
+-- never act on a later one.
+local holdTokens: { [Player]: number } = {}
+local windups: { [Player]: Windup } = {}
 local lastPickup: { [Player]: number } = {}
 local lastThrow: { [Player]: number } = {}
 local throwLimiter = RateLimiter.new(Config.MAX_REMOTE_RATE)
@@ -52,17 +62,26 @@ end
 local function setHolding(player: Player, part: BasePart?)
 	holding[player] = part
 	player:SetAttribute("HoldingDebris", part ~= nil)
+	player:SetAttribute("HoldUntil", if part then workspace:GetServerTimeNow() + Config.HOLD_MAX_TIME else nil)
 end
 
--- Drop whatever the player is holding in place (death, elimination, leaving).
-function ThrowService.release(player: Player)
-	local part = holding[player]
+-- Detach the held piece and clear every hold attribute. The caller decides
+-- what happens to the part afterwards (drop in place or launch).
+local function endHold(player: Player)
 	local weld = holdWelds[player]
 	holdWelds[player] = nil
+	windups[player] = nil
 	setHolding(player, nil)
+	player:SetAttribute("Throwing", false)
 	if weld then
 		weld:Destroy()
 	end
+end
+
+-- Drop whatever the player is holding in place (timer, death, elimination, leaving).
+function ThrowService.release(player: Player)
+	local part = holding[player]
+	endHold(player)
 	if part and part.Parent then
 		local record = DebrisService.get(part)
 		if record then
@@ -110,33 +129,36 @@ local function tryPickup(player: Player, part: BasePart)
 	weld.Parent = part
 	holdWelds[player] = weld
 	setHolding(player, part)
+
+	-- Hold timer: the piece drops at the player's feet if they sit on it. A
+	-- wind-up already in flight wins; launch itself releases if it can't throw,
+	-- so the hold still ends within THROW_WINDUP of the limit.
+	local token = (holdTokens[player] or 0) + 1
+	holdTokens[player] = token
+	task.delay(Config.HOLD_MAX_TIME, function()
+		if holding[player] == part and holdTokens[player] == token and not windups[player] then
+			ThrowService.release(player)
+		end
+	end)
 end
 
-local function onThrowRequest(player: Player, aimPoint: unknown)
-	-- Validation: type, rate, state, then geometry.
-	if typeof(aimPoint) ~= "Vector3" then
-		return
+-- End of the wind-up. Everything is re-read from the server's current view;
+-- only the aim point is remembered from the request.
+local function launch(player: Player, part: BasePart, windup: Windup)
+	if windups[player] ~= windup or holding[player] ~= part then
+		return -- the hold ended meanwhile; endHold already cleared Throwing
 	end
-	local aim = aimPoint :: Vector3
-	if not isFiniteVector(aim) or not throwLimiter:allow(player) then
-		return
-	end
-	local now = os.clock()
-	if now - (lastThrow[player] or 0) < Config.THROW_COOLDOWN then
-		return
-	end
-	local part = holding[player]
-	if not part or not LoadService.isAlive(player) then
-		return
-	end
+	windups[player] = nil
 	local record = DebrisService.get(part)
 	local root = livingRoot(player)
-	if not record or record.heldBy ~= player or not root then
+	-- Re-check liveness: elimination flips isAlive before the crush releases.
+	if not part.Parent or not record or record.heldBy ~= player or not root or not LoadService.isAlive(player) then
+		ThrowService.release(player) -- drop in place rather than throw
 		return
 	end
-	lastThrow[player] = now
 
 	-- Launch from the server's view of the hold position, never a client value.
+	local aim = windup.aim
 	local origin = (root.CFrame * Config.HOLD_OFFSET).Position
 	local toAim = aim - origin
 	if toAim.Magnitude > Config.THROW_MAX_AIM_DISTANCE then
@@ -144,12 +166,7 @@ local function onThrowRequest(player: Player, aimPoint: unknown)
 	end
 	local velocity = Ballistics.solve(origin, aim, Config.THROW_SPEED)
 
-	local weld = holdWelds[player]
-	holdWelds[player] = nil
-	setHolding(player, nil)
-	if weld then
-		weld:Destroy()
-	end
+	endHold(player)
 	part.CFrame = CFrame.new(origin) * part.CFrame.Rotation
 	DebrisService.markReleased(record, player, velocity)
 	pcall(part.SetNetworkOwner, part, nil)
@@ -167,6 +184,38 @@ local function onThrowRequest(player: Player, aimPoint: unknown)
 	task.delay(Config.THROW_BOOST_TIME, function()
 		drive:Destroy()
 	end)
+end
+
+local function onThrowRequest(player: Player, aimPoint: unknown)
+	-- Validation: type, rate, state, then geometry.
+	if typeof(aimPoint) ~= "Vector3" then
+		return
+	end
+	local aim = aimPoint :: Vector3
+	if not isFiniteVector(aim) or not throwLimiter:allow(player) then
+		return
+	end
+	local now = os.clock()
+	if now - (lastThrow[player] or 0) < Config.THROW_COOLDOWN then
+		return
+	end
+	local part = holding[player]
+	if not part or windups[player] or not LoadService.isAlive(player) then
+		return
+	end
+	local record = DebrisService.get(part)
+	local root = livingRoot(player)
+	if not record or record.heldBy ~= player or not root then
+		return
+	end
+	lastThrow[player] = now
+
+	-- Wind-up: the piece stays welded and further requests are ignored until
+	-- the launch fires.
+	local windup: Windup = { aim = aim }
+	windups[player] = windup
+	player:SetAttribute("Throwing", true)
+	task.delay(Config.THROW_WINDUP, launch, player, part, windup)
 end
 
 -- Body hit: knock the victim along the throw direction. No load moves here;
@@ -210,6 +259,7 @@ function ThrowService.init()
 	end)
 	Players.PlayerRemoving:Connect(function(player)
 		ThrowService.release(player)
+		holdTokens[player] = nil
 		lastPickup[player] = nil
 		lastThrow[player] = nil
 		throwLimiter:forget(player)

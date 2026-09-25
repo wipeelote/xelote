@@ -8,12 +8,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
+local Remotes = require(Shared.Remotes)
 local Arena = require(script.Parent.Arena)
 
 type Platform = Arena.Platform
 type EliminatedListener = (player: Player, platform: Platform, reason: string) -> ()
 
 local LoadService = {}
+
+local effectsRemote = Remotes.get("Effects")
 
 LoadService.platformLoads = {} :: { [Player]: number }
 local platformOf: { [Player]: Platform } = {}
@@ -114,6 +117,8 @@ function LoadService.eliminate(player: Player, reason: string)
 	platform.model:SetAttribute("Eliminated", true)
 
 	task.spawn(function()
+		-- Clients shake and puff the moment the piston starts moving.
+		effectsRemote:FireAllClients("Crush", platform.topCFrame.Position, platform.slot)
 		Arena.dropPlatform(platform)
 		-- Crushed along with their own debris, Machine Party style.
 		local character = player.Character

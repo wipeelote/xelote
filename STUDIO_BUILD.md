@@ -44,6 +44,7 @@ ServerScriptService.DebrisClear.Map (Folder)
 StarterPlayer.StarterPlayerScripts.DebrisClear (Folder)
    ├─ Main (LocalScript)
    ├─ DebrisVisuals (ModuleScript)
+   ├─ EffectsController (ModuleScript)
    ├─ Hud (ModuleScript)
    ├─ InteractionController (ModuleScript)
    ├─ RingMeterController (ModuleScript)
@@ -147,6 +148,17 @@ Config.LAND_HEIGHT_BAND = 3 -- PLACEHOLDER
 Config.LAND_MAX_SPEED = 6 -- PLACEHOLDER: studs/s
 Config.LAND_SCAN_INTERVAL = 0.1 -- PLACEHOLDER: seconds between server landing scans
 Config.MAX_DEBRIS_TOTAL = 80 -- PLACEHOLDER: safety cap across the whole arena
+-- Pressure curve: spawn intervals shrink linearly from the values above to
+-- the *_END values over SPAWN_RAMP_TIME seconds of the round, then hold.
+Config.SPAWN_RAMP_TIME = 60 -- PLACEHOLDER
+Config.SPAWN_INTERVAL_MIN_END = 1.0 -- PLACEHOLDER
+Config.SPAWN_INTERVAL_MAX_END = 1.8 -- PLACEHOLDER
+-- Landing hysteresis: a piece must sit still on a deck this long before it
+-- counts, and be off/moving this long before it stops counting.
+Config.LAND_SETTLE_TIME = 0.3 -- PLACEHOLDER
+Config.LAND_UNSETTLE_TIME = 0.3 -- PLACEHOLDER
+-- Crushed platforms fling their debris into the lava at this speed.
+Config.CRUSH_SCATTER_SPEED = 45 -- PLACEHOLDER
 
 -- Optional imported mesh. Leave "" to build the d10 at runtime with EditableMesh.
 -- To use an import: upload assets/decahedron.obj via the Asset Manager and paste
@@ -172,11 +184,30 @@ Config.THROW_COOLDOWN = 0.35 -- PLACEHOLDER: minimum seconds between throw reque
 Config.THROW_MAX_AIM_DISTANCE = 500 -- PLACEHOLDER: aim point is clamped to this range
 Config.THROW_FALLBACK_PITCH = math.rad(45) -- PLACEHOLDER: launch angle when the target is out of range (45 = max range)
 Config.THROW_HIT_WINDOW = 1.5 -- PLACEHOLDER: seconds after a throw that a body hit still counts
+Config.HOLD_MAX_TIME = 4 -- PLACEHOLDER: seconds a piece can be held before it drops at your feet
+Config.THROW_WINDUP = 0.15 -- PLACEHOLDER: seconds between the throw input and the launch
+Config.THROW_TRAIL_LIFETIME = 0.35 -- PLACEHOLDER: seconds the trail behind a thrown piece lingers
+Config.ARM_RAISE = true -- PLACEHOLDER: procedural right-arm raise/swing while holding and throwing (client)
 Config.KNOCKBACK_SPEED = 40 -- per spec, horizontal studs/s
 Config.KNOCKBACK_UP = 18 -- PLACEHOLDER: small vertical pop so the hit breaks floor friction
 Config.KNOCKBACK_STUN = 0.45 -- PLACEHOLDER: seconds of PlatformStand after a hit
 Config.AIM_ARC_POINTS = 14 -- PLACEHOLDER: dots in the client-side throw preview arc
 Config.AIM_ARC_MAX_TIME = 2 -- PLACEHOLDER: seconds of flight the preview arc covers at most
+
+---------------------------------------------------------------------------
+-- Client feedback / effects
+---------------------------------------------------------------------------
+Config.LAND_SHADOW_ENABLED = true -- warning disc on the deck under every falling piece
+Config.LAND_SHADOW_HEIGHT = 30 -- PLACEHOLDER: shadow starts showing when the piece is this high above the surface
+Config.LAND_SHADOW_MAX_RADIUS = 1.6 -- PLACEHOLDER: disc radius when the piece is about to land
+Config.LAND_SHADOW_COLOR = Color3.fromRGB(255, 40, 40)
+Config.SHAKE_LAND = 0.35 -- PLACEHOLDER: camera shake for the owner when a piece lands on their platform
+Config.SHAKE_CRUSH = 1.2 -- PLACEHOLDER: camera shake at a crushed platform, falls off with distance
+Config.SHAKE_FALLOFF_RANGE = 120 -- PLACEHOLDER: studs at which crush shake fades to zero
+Config.WIN_CAMERA_TIME = 3 -- PLACEHOLDER: seconds every camera focuses on the winner's platform (0 disables)
+Config.BILLBOARD_ENABLED = true -- floating load bar above each rival platform
+Config.BILLBOARD_HEIGHT = 14 -- PLACEHOLDER: studs above the deck
+Config.BILLBOARD_MAX_DISTANCE = 250 -- PLACEHOLDER
 
 ---------------------------------------------------------------------------
 -- Networking / validation
@@ -424,12 +455,16 @@ _Repo file: `src/shared/Remotes.luau`_
 --
 --   ThrowDebris  client -> server  (aimPoint: Vector3)
 --   Knockback    server -> client  (velocity: Vector3, stunTime: number)
+--   Effects      server -> all     (kind: string, position: Vector3, slot: number, extra: any?)
+--                kinds: "Land"  a piece started counting on platform `slot`
+--                       "Crush" platform `slot` was crushed
+--                       "Win"   round over; extra = winner display name ("" if nobody)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local FOLDER_NAME = "DebrisClearRemotes"
-local NAMES = { "ThrowDebris", "Knockback" }
+local NAMES = { "ThrowDebris", "Knockback", "Effects" }
 
 local Remotes = {}
 
@@ -484,6 +519,7 @@ local ThrowService = require(script.Parent.ThrowService)
 Players.CharacterAutoLoads = false
 
 Remotes.get("ThrowDebris") -- create the remotes before any client asks
+local effectsRemote = Remotes.get("Effects")
 Arena.build()
 DebrisService.init()
 ThrowService.init()
@@ -702,6 +738,13 @@ local function runRound()
 
 	local winner = LoadService.alivePlayers()[1]
 	setStatus(if winner then `{winner.DisplayName} wins!` else "Nobody survived!")
+	-- Confetti + winner camera on every client; a slot of 0 means nobody won.
+	local winnerPlatform = winner and LoadService.platformOf(winner)
+	if winner and winnerPlatform then
+		effectsRemote:FireAllClients("Win", winnerPlatform.topCFrame.Position, winnerPlatform.slot, winner.DisplayName)
+	else
+		effectsRemote:FireAllClients("Win", Config.ARENA_CENTER, 0, "")
+	end
 	ThrowService.releaseAll()
 	DebrisService.stopRound()
 	task.wait(Config.POST_ROUND_TIME)
@@ -1164,6 +1207,12 @@ _Repo file: `src/server/DebrisService.luau`_
 --!strict
 -- Spawns d10 debris over each live platform, owns their physics, and decides
 -- which platform (if any) each piece has landed on.
+--
+-- Every piece carries a replicated "State" attribute for client visuals:
+--   "Loose"   falling, or resting somewhere that doesn't count
+--   "Held"    welded to a player
+--   "Thrown"  in flight after a throw, until it settles
+--   "Landed"  counting toward a platform's load
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1173,6 +1222,7 @@ local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
 local DecahedronMesh = require(Shared.DecahedronMesh)
 local HexGeometry = require(Shared.HexGeometry)
+local Remotes = require(Shared.Remotes)
 local Arena = require(script.Parent.Arena)
 local LoadService = require(script.Parent.LoadService)
 
@@ -1188,9 +1238,20 @@ export type DebrisRecord = {
 	thrownAt: number,
 	throwVelocity: Vector3,
 	hitDone: boolean,
+	-- Landing hysteresis: the platform the piece has been resting over since
+	-- settleSince, and when a landed piece was first seen off its platform.
+	settleOn: Platform?,
+	settleSince: number,
+	unsettleSince: number?,
+	trail: Trail?,
+	-- Flung off a crushed platform; never counts again.
+	doomed: boolean,
 }
 
 local DEBRIS_TAG = "DebrisClearDebris"
+local TRAIL_HALF_WIDTH = 0.8 -- studs from the piece center to each trail attachment
+local CRUSH_SCATTER_SPREAD = 0.35 -- horizontal jitter per unit of downward fling
+local CRUSH_SCATTER_SPIN = 10 -- rad/s of random tumble on a flung piece
 
 local DebrisService = {}
 
@@ -1198,7 +1259,9 @@ local records: { [BasePart]: DebrisRecord } = {}
 local template: BasePart? = nil
 local rng = Random.new()
 local roundId = 0
+local roundStartedAt = 0
 local scanAccumulator = 0
+local effectsRemote: RemoteEvent
 
 -- Set by ThrowService so this module doesn't need to require it.
 DebrisService.onPromptTriggered = nil :: ((player: Player, part: BasePart) -> ())?
@@ -1272,6 +1335,7 @@ end
 
 function DebrisService.init()
 	template = buildTemplate()
+	effectsRemote = Remotes.get("Effects")
 
 	RunService.Heartbeat:Connect(function(dt)
 		scanAccumulator += dt
@@ -1294,6 +1358,61 @@ function DebrisService.count(): number
 	return n
 end
 
+local function setState(record: DebrisRecord, state: string)
+	record.part:SetAttribute("State", state)
+end
+
+local function clearTrail(record: DebrisRecord)
+	local trail = record.trail
+	if not trail then
+		return
+	end
+	record.trail = nil
+	local a0, a1 = trail.Attachment0, trail.Attachment1
+	trail:Destroy()
+	if a0 then
+		a0:Destroy()
+	end
+	if a1 then
+		a1:Destroy()
+	end
+end
+
+-- Default ribbon (no texture) fading from the debris color to white.
+local function attachTrail(record: DebrisRecord)
+	clearTrail(record)
+	local part = record.part
+	local a0 = Instance.new("Attachment")
+	a0.Name = "TrailLeft"
+	a0.Position = Vector3.new(TRAIL_HALF_WIDTH, 0, 0)
+	a0.Parent = part
+	local a1 = Instance.new("Attachment")
+	a1.Name = "TrailRight"
+	a1.Position = Vector3.new(-TRAIL_HALF_WIDTH, 0, 0)
+	a1.Parent = part
+
+	local trail = Instance.new("Trail")
+	trail.Name = "ThrowTrail"
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Lifetime = Config.THROW_TRAIL_LIFETIME
+	trail.Color = ColorSequence.new(Config.DEBRIS_COLOR, Color3.new(1, 1, 1))
+	trail.Transparency = NumberSequence.new(0.2, 1)
+	trail.WidthScale = NumberSequence.new(1, 0)
+	trail.LightEmission = 0.5
+	trail.FaceCamera = true
+	trail.Parent = part
+	record.trail = trail
+
+	-- Safety net: a piece that never settles still loses its trail.
+	task.delay(Config.THROW_HIT_WINDOW * 2, function()
+		if record.trail == trail then
+			clearTrail(record)
+		end
+	end)
+end
+
+-- Moves the piece's load between platforms. Callers set the "State" attribute.
 local function setLanded(record: DebrisRecord, platform: Platform?)
 	if record.landedOn == platform then
 		return
@@ -1302,14 +1421,26 @@ local function setLanded(record: DebrisRecord, platform: Platform?)
 		LoadService.addLoad(record.landedOn, -Config.LOAD_PER_DEBRIS)
 	end
 	record.landedOn = platform
+	record.unsettleSince = nil
 	if platform then
 		LoadService.addLoad(platform, Config.LOAD_PER_DEBRIS)
 	end
 end
 
+-- The piece has sat still on a live platform long enough: count it.
+local function land(record: DebrisRecord, platform: Platform)
+	record.thrownBy = nil
+	record.hitDone = true
+	clearTrail(record)
+	setLanded(record, platform)
+	setState(record, "Landed")
+	effectsRemote:FireAllClients("Land", record.part.Position, platform.slot)
+end
+
 function DebrisService.destroy(part: BasePart)
 	local record = records[part]
 	if record then
+		clearTrail(record)
 		setLanded(record, nil)
 		records[part] = nil
 	end
@@ -1318,7 +1449,9 @@ end
 
 local function updateAntiGravity(record: DebrisRecord)
 	local part = record.part
-	local lift = if record.heldBy then 0 else part:GetMass() * workspace.Gravity * (1 - Config.DEBRIS_GRAVITY_SCALE)
+	local lift = if record.heldBy or record.doomed
+		then 0
+		else part:GetMass() * workspace.Gravity * (1 - Config.DEBRIS_GRAVITY_SCALE)
 	record.antiGravity.Force = Vector3.new(0, lift, 0)
 end
 
@@ -1329,6 +1462,7 @@ function DebrisService.spawnAt(position: Vector3): BasePart?
 	local part = (template :: BasePart):Clone()
 	part.CFrame = CFrame.new(position)
 		* CFrame.Angles(rng:NextNumber() * math.pi * 2, rng:NextNumber() * math.pi * 2, rng:NextNumber() * math.pi * 2)
+	part:SetAttribute("State", "Loose")
 	part.Parent = Arena.debrisFolder()
 	part:SetNetworkOwner(nil) -- server-authoritative physics
 	part.AssemblyAngularVelocity = rng:NextUnitVector() * 3
@@ -1343,6 +1477,11 @@ function DebrisService.spawnAt(position: Vector3): BasePart?
 		thrownAt = 0,
 		throwVelocity = Vector3.zero,
 		hitDone = true,
+		settleOn = nil,
+		settleSince = 0,
+		unsettleSince = nil,
+		trail = nil,
+		doomed = false,
 	}
 	records[part] = record
 	updateAntiGravity(record)
@@ -1370,14 +1509,18 @@ function DebrisService.markHeld(record: DebrisRecord, player: Player)
 	record.heldBy = player
 	record.thrownBy = nil
 	record.hitDone = true
+	record.settleOn = nil
+	clearTrail(record)
 	record.prompt.Enabled = false
 	record.part.CanCollide = false
 	record.part.Massless = true
 	updateAntiGravity(record)
+	setState(record, "Held")
 end
 
 function DebrisService.markReleased(record: DebrisRecord, thrower: Player?, velocity: Vector3?)
 	record.heldBy = nil
+	record.settleOn = nil
 	record.prompt.Enabled = true
 	record.part.CanCollide = true
 	record.part.Massless = false
@@ -1387,6 +1530,10 @@ function DebrisService.markReleased(record: DebrisRecord, thrower: Player?, velo
 		record.thrownAt = os.clock()
 		record.throwVelocity = velocity
 		record.hitDone = false
+		attachTrail(record)
+		setState(record, "Thrown")
+	else
+		setState(record, "Loose")
 	end
 end
 
@@ -1408,6 +1555,7 @@ function DebrisService.scan()
 	local now = os.clock()
 	for part, record in records do
 		if not part.Parent then
+			clearTrail(record)
 			setLanded(record, nil)
 			records[part] = nil
 			continue
@@ -1420,26 +1568,67 @@ function DebrisService.scan()
 			DebrisService.destroy(part)
 			continue
 		end
+		if record.doomed then
+			continue
+		end
 		if record.thrownBy and now - record.thrownAt > Config.THROW_HIT_WINDOW then
+			-- Too late to hit anyone.
 			record.hitDone = true
+		end
+		-- "Thrown" lasts until the piece actually slows (or the trail's safety
+		-- net expires), not just until the hit window closes.
+		if part:GetAttribute("State") == "Thrown"
+			and (part.AssemblyLinearVelocity.Magnitude <= Config.LAND_MAX_SPEED
+				or now - record.thrownAt > Config.THROW_HIT_WINDOW * 2) then
+			setState(record, "Loose")
 		end
 
+		-- Settle timer: how long the piece has sat still over one platform.
 		local under = platformUnder(position)
-		if record.landedOn and under ~= record.landedOn then
-			-- Slid, rolled or got knocked off.
-			setLanded(record, nil)
+		local resting = under ~= nil and part.AssemblyLinearVelocity.Magnitude <= Config.LAND_MAX_SPEED
+		if not resting then
+			record.settleOn = nil
+		elseif under ~= record.settleOn then
+			record.settleOn = under
+			record.settleSince = now
 		end
-		if not record.landedOn and under and part.AssemblyLinearVelocity.Magnitude <= Config.LAND_MAX_SPEED then
-			record.thrownBy = nil
-			record.hitDone = true
-			setLanded(record, under)
+
+		-- Unsettle timer: how long a landed piece has been off its platform.
+		local landedOn = record.landedOn
+		if landedOn then
+			if under == landedOn then
+				record.unsettleSince = nil
+			else
+				local since = record.unsettleSince or now
+				record.unsettleSince = since
+				if now - since >= Config.LAND_UNSETTLE_TIME then
+					-- Slid, rolled or got knocked off.
+					setLanded(record, nil)
+					setState(record, "Loose")
+				end
+			end
+		end
+
+		local settleOn = record.settleOn
+		if not record.landedOn and settleOn and now - record.settleSince >= Config.LAND_SETTLE_TIME then
+			land(record, settleOn)
 		end
 	end
 end
 
+-- Pressure curve: spawn gaps shrink from the start values to the *_END values
+-- over SPAWN_RAMP_TIME, then hold.
+local function nextSpawnInterval(): number
+	local ramp = Config.SPAWN_RAMP_TIME
+	local t = if ramp > 0 then math.clamp((os.clock() - roundStartedAt) / ramp, 0, 1) else 1
+	local min = Config.SPAWN_INTERVAL_MIN + (Config.SPAWN_INTERVAL_MIN_END - Config.SPAWN_INTERVAL_MIN) * t
+	local max = Config.SPAWN_INTERVAL_MAX + (Config.SPAWN_INTERVAL_MAX_END - Config.SPAWN_INTERVAL_MAX) * t
+	return rng:NextNumber(min, max)
+end
+
 local function spawnLoop(platform: Platform, myRound: number)
 	while roundId == myRound and LoadService.isActive(platform) do
-		task.wait(rng:NextNumber(Config.SPAWN_INTERVAL_MIN, Config.SPAWN_INTERVAL_MAX))
+		task.wait(nextSpawnInterval())
 		if roundId ~= myRound or not LoadService.isActive(platform) then
 			break
 		end
@@ -1451,20 +1640,45 @@ end
 
 function DebrisService.startRound(platforms: { Platform })
 	roundId += 1
+	roundStartedAt = os.clock()
 	for _, platform in platforms do
 		task.spawn(spawnLoop, platform, roundId)
 	end
 end
 
--- Destroys every loose piece over a crushed platform's footprint.
+-- Flings a piece off a crushed platform into the lava. It never counts again;
+-- the kill-line check in scan() destroys it once it drops below killY.
+local function doom(record: DebrisRecord)
+	setLanded(record, nil)
+	record.doomed = true
+	record.thrownBy = nil
+	record.hitDone = true
+	record.settleOn = nil
+	clearTrail(record)
+	setState(record, "Loose")
+	record.prompt.Enabled = false
+	updateAntiGravity(record)
+
+	local part = record.part
+	part.CanTouch = false
+	local direction = Vector3.new(
+		rng:NextNumber(-CRUSH_SCATTER_SPREAD, CRUSH_SCATTER_SPREAD),
+		-1,
+		rng:NextNumber(-CRUSH_SCATTER_SPREAD, CRUSH_SCATTER_SPREAD)
+	).Unit
+	part.AssemblyLinearVelocity = direction * Config.CRUSH_SCATTER_SPEED
+	part.AssemblyAngularVelocity = rng:NextUnitVector() * CRUSH_SCATTER_SPIN
+end
+
+-- Scatters every loose piece over a crushed platform's footprint into the pit.
 function DebrisService.crushPlatform(platform: Platform)
 	for part, record in records do
-		if record.heldBy then
+		if record.heldBy or record.doomed then
 			continue
 		end
 		local inside = HexGeometry.containsWorld(platform.topCFrame, Config.PLATFORM_RADIUS, part.Position)
 		if record.landedOn == platform or inside then
-			DebrisService.destroy(part)
+			doom(record)
 		end
 	end
 end
@@ -1494,12 +1708,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
+local Remotes = require(Shared.Remotes)
 local Arena = require(script.Parent.Arena)
 
 type Platform = Arena.Platform
 type EliminatedListener = (player: Player, platform: Platform, reason: string) -> ()
 
 local LoadService = {}
+
+local effectsRemote = Remotes.get("Effects")
 
 LoadService.platformLoads = {} :: { [Player]: number }
 local platformOf: { [Player]: Platform } = {}
@@ -1521,10 +1738,14 @@ function LoadService.startRound(assignments: { [Player]: Platform })
 		platform.model:SetAttribute("Load", 0)
 		platform.model:SetAttribute("OwnerName", player.DisplayName)
 		platform.model:SetAttribute("Eliminated", false)
+		player:SetAttribute("PlatformSlot", platform.slot)
 	end
 end
 
 function LoadService.reset()
+	for player in platformOf do
+		player:SetAttribute("PlatformSlot", nil)
+	end
 	table.clear(LoadService.platformLoads)
 	table.clear(platformOf)
 	table.clear(ownerOf)
@@ -1596,6 +1817,8 @@ function LoadService.eliminate(player: Player, reason: string)
 	platform.model:SetAttribute("Eliminated", true)
 
 	task.spawn(function()
+		-- Clients shake and puff the moment the piston starts moving.
+		effectsRemote:FireAllClients("Crush", platform.topCFrame.Position, platform.slot)
 		Arena.dropPlatform(platform)
 		-- Crushed along with their own debris, Machine Party style.
 		local character = player.Character
@@ -1664,8 +1887,13 @@ _Repo file: `src/server/ThrowService.luau`_
 ```lua
 --!strict
 -- Pickup (ProximityPrompt) and throw (RemoteEvent). The client only sends an
--- aim point. Everything else (who holds what, where it launches from, how
--- fast, what it hits) is decided here.
+-- aim point. Everything else (who holds what, how long, where it launches
+-- from, how fast, what it hits) is decided here.
+--
+-- Player attributes written here (clients only render them):
+--   HoldingDebris  true while a piece is welded to the player
+--   HoldUntil      server time the held piece auto-drops; nil when not holding
+--   Throwing       true during the wind-up between the throw request and launch
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1679,11 +1907,16 @@ local LoadService = require(script.Parent.LoadService)
 local RateLimiter = require(script.Parent.RateLimiter)
 
 type DebrisRecord = DebrisService.DebrisRecord
+type Windup = { aim: Vector3 }
 
 local ThrowService = {}
 
 local holding: { [Player]: BasePart? } = {}
 local holdWelds: { [Player]: WeldConstraint } = {}
+-- Bumped on every pickup so a hold timer or wind-up from an earlier hold can
+-- never act on a later one.
+local holdTokens: { [Player]: number } = {}
+local windups: { [Player]: Windup } = {}
 local lastPickup: { [Player]: number } = {}
 local lastThrow: { [Player]: number } = {}
 local throwLimiter = RateLimiter.new(Config.MAX_REMOTE_RATE)
@@ -1716,17 +1949,26 @@ end
 local function setHolding(player: Player, part: BasePart?)
 	holding[player] = part
 	player:SetAttribute("HoldingDebris", part ~= nil)
+	player:SetAttribute("HoldUntil", if part then workspace:GetServerTimeNow() + Config.HOLD_MAX_TIME else nil)
 end
 
--- Drop whatever the player is holding in place (death, elimination, leaving).
-function ThrowService.release(player: Player)
-	local part = holding[player]
+-- Detach the held piece and clear every hold attribute. The caller decides
+-- what happens to the part afterwards (drop in place or launch).
+local function endHold(player: Player)
 	local weld = holdWelds[player]
 	holdWelds[player] = nil
+	windups[player] = nil
 	setHolding(player, nil)
+	player:SetAttribute("Throwing", false)
 	if weld then
 		weld:Destroy()
 	end
+end
+
+-- Drop whatever the player is holding in place (timer, death, elimination, leaving).
+function ThrowService.release(player: Player)
+	local part = holding[player]
+	endHold(player)
 	if part and part.Parent then
 		local record = DebrisService.get(part)
 		if record then
@@ -1774,33 +2016,36 @@ local function tryPickup(player: Player, part: BasePart)
 	weld.Parent = part
 	holdWelds[player] = weld
 	setHolding(player, part)
+
+	-- Hold timer: the piece drops at the player's feet if they sit on it. A
+	-- wind-up already in flight wins; launch itself releases if it can't throw,
+	-- so the hold still ends within THROW_WINDUP of the limit.
+	local token = (holdTokens[player] or 0) + 1
+	holdTokens[player] = token
+	task.delay(Config.HOLD_MAX_TIME, function()
+		if holding[player] == part and holdTokens[player] == token and not windups[player] then
+			ThrowService.release(player)
+		end
+	end)
 end
 
-local function onThrowRequest(player: Player, aimPoint: unknown)
-	-- Validation: type, rate, state, then geometry.
-	if typeof(aimPoint) ~= "Vector3" then
-		return
+-- End of the wind-up. Everything is re-read from the server's current view;
+-- only the aim point is remembered from the request.
+local function launch(player: Player, part: BasePart, windup: Windup)
+	if windups[player] ~= windup or holding[player] ~= part then
+		return -- the hold ended meanwhile; endHold already cleared Throwing
 	end
-	local aim = aimPoint :: Vector3
-	if not isFiniteVector(aim) or not throwLimiter:allow(player) then
-		return
-	end
-	local now = os.clock()
-	if now - (lastThrow[player] or 0) < Config.THROW_COOLDOWN then
-		return
-	end
-	local part = holding[player]
-	if not part or not LoadService.isAlive(player) then
-		return
-	end
+	windups[player] = nil
 	local record = DebrisService.get(part)
 	local root = livingRoot(player)
-	if not record or record.heldBy ~= player or not root then
+	-- Re-check liveness: elimination flips isAlive before the crush releases.
+	if not part.Parent or not record or record.heldBy ~= player or not root or not LoadService.isAlive(player) then
+		ThrowService.release(player) -- drop in place rather than throw
 		return
 	end
-	lastThrow[player] = now
 
 	-- Launch from the server's view of the hold position, never a client value.
+	local aim = windup.aim
 	local origin = (root.CFrame * Config.HOLD_OFFSET).Position
 	local toAim = aim - origin
 	if toAim.Magnitude > Config.THROW_MAX_AIM_DISTANCE then
@@ -1808,12 +2053,7 @@ local function onThrowRequest(player: Player, aimPoint: unknown)
 	end
 	local velocity = Ballistics.solve(origin, aim, Config.THROW_SPEED)
 
-	local weld = holdWelds[player]
-	holdWelds[player] = nil
-	setHolding(player, nil)
-	if weld then
-		weld:Destroy()
-	end
+	endHold(player)
 	part.CFrame = CFrame.new(origin) * part.CFrame.Rotation
 	DebrisService.markReleased(record, player, velocity)
 	pcall(part.SetNetworkOwner, part, nil)
@@ -1831,6 +2071,38 @@ local function onThrowRequest(player: Player, aimPoint: unknown)
 	task.delay(Config.THROW_BOOST_TIME, function()
 		drive:Destroy()
 	end)
+end
+
+local function onThrowRequest(player: Player, aimPoint: unknown)
+	-- Validation: type, rate, state, then geometry.
+	if typeof(aimPoint) ~= "Vector3" then
+		return
+	end
+	local aim = aimPoint :: Vector3
+	if not isFiniteVector(aim) or not throwLimiter:allow(player) then
+		return
+	end
+	local now = os.clock()
+	if now - (lastThrow[player] or 0) < Config.THROW_COOLDOWN then
+		return
+	end
+	local part = holding[player]
+	if not part or windups[player] or not LoadService.isAlive(player) then
+		return
+	end
+	local record = DebrisService.get(part)
+	local root = livingRoot(player)
+	if not record or record.heldBy ~= player or not root then
+		return
+	end
+	lastThrow[player] = now
+
+	-- Wind-up: the piece stays welded and further requests are ignored until
+	-- the launch fires.
+	local windup: Windup = { aim = aim }
+	windups[player] = windup
+	player:SetAttribute("Throwing", true)
+	task.delay(Config.THROW_WINDUP, launch, player, part, windup)
 end
 
 -- Body hit: knock the victim along the throw direction. No load moves here;
@@ -1874,6 +2146,7 @@ function ThrowService.init()
 	end)
 	Players.PlayerRemoving:Connect(function(player)
 		ThrowService.release(player)
+		holdTokens[player] = nil
 		lastPickup[player] = nil
 		lastThrow[player] = nil
 		throwLimiter:forget(player)
@@ -2310,7 +2583,7 @@ _Repo file: `src/server/Map/PlatformDressing.luau`_
 local PlatformDressing = {}
 
 function PlatformDressing.dress(model: Model, topCFrame: CFrame, color: Color3, slot: number)
-	local _ = { model, topCFrame, color, slot }
+	local _unused = { model :: any, topCFrame :: any, color :: any, slot :: any }
 end
 
 return PlatformDressing
@@ -2383,10 +2656,12 @@ local Hud = require(script.Parent.Hud)
 local RingMeterController = require(script.Parent.RingMeterController)
 local InteractionController = require(script.Parent.InteractionController)
 local DebrisVisuals = require(script.Parent.DebrisVisuals)
+local EffectsController = require(script.Parent.EffectsController)
 
 Hud.start()
 RingMeterController.start()
 InteractionController.start()
+EffectsController.start()
 task.spawn(DebrisVisuals.start) -- may yield while building the mesh
 ```
 
@@ -2396,11 +2671,14 @@ _Repo file: `src/client/DebrisVisuals.luau`_
 
 ```lua
 --!strict
--- EditableMesh geometry doesn't replicate, so when the server marks debris
--- Visual = "Client" its physics part is invisible and each client renders a
--- local d10 that follows it.
+-- Local rendering for every part tagged DebrisClearDebris:
+--   * Visual = "Client": EditableMesh geometry doesn't replicate, so the
+--     server's physics part is invisible and each client draws a d10 over it.
+--   * Landing shadow: a warning disc on whatever is under a falling piece
+--     (State "Loose"/"Thrown", unanchored), growing and darkening as it drops.
 
 local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -2408,13 +2686,31 @@ local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
 local DecahedronMesh = require(Shared.DecahedronMesh)
 
+type Entry = { visual: BasePart? }
+
 local DEBRIS_TAG = "DebrisClearDebris"
+
+-- Shadow disc: radius/transparency at LAND_SHADOW_HEIGHT (far) -> at the
+-- surface (near). Height is measured from the piece's underside, so a resting
+-- piece (height < SHADOW_REST_HEIGHT) shows nothing.
+local MAX_SHADOWS = 40
+local SHADOW_RAY_MARGIN = 5 -- studs of raycast beyond LAND_SHADOW_HEIGHT
+local SHADOW_MIN_RADIUS = 0.35
+local SHADOW_FAR_TRANSPARENCY = 0.75
+local SHADOW_NEAR_TRANSPARENCY = 0.15
+local SHADOW_REST_HEIGHT = 0.4
+local SHADOW_THICKNESS = 0.1
+local SHADOW_LIFT = 0.06 -- studs off the hit surface, along its normal
 
 local DebrisVisuals = {}
 
 local template: BasePart? = nil
-local tracked: { [BasePart]: BasePart } = {}
+local tracked: { [BasePart]: Entry } = {}
+local offsets: { [BasePart]: CFrame? } = {}
 local folder: Folder
+local shadowPool: { BasePart } = {}
+local shadowParams = RaycastParams.new()
+local arenaDebris: Instance? = nil
 
 local function getTemplate(): BasePart
 	if template then
@@ -2440,37 +2736,141 @@ local function getTemplate(): BasePart
 end
 
 local function track(instance: Instance)
-	if not instance:IsA("BasePart") or instance:GetAttribute("Visual") ~= "Client" then
+	if not instance:IsA("BasePart") then
 		return
 	end
 	local debris = instance :: BasePart
 	if tracked[debris] then
 		return
 	end
-	local visual = getTemplate():Clone()
-	visual.CFrame = debris.CFrame
-	visual.Parent = folder
-	tracked[debris] = visual
+	local visual: BasePart? = nil
+	if debris:GetAttribute("Visual") == "Client" then
+		local clone = getTemplate():Clone()
+		clone.CFrame = debris.CFrame
+		clone.Parent = folder
+		visual = clone
+	end
+	tracked[debris] = { visual = visual }
 end
 
 local function untrack(instance: Instance)
 	local debris = instance :: BasePart
-	local visual = tracked[debris]
-	if visual then
-		visual:Destroy()
+	local entry = tracked[debris]
+	if entry then
+		if entry.visual then
+			entry.visual:Destroy()
+		end
 		tracked[debris] = nil
+	end
+	offsets[debris] = nil
+end
+
+---------------------------------------------------------------------------
+-- Landing shadows
+---------------------------------------------------------------------------
+local function shadowDisc(index: number): BasePart
+	local disc = shadowPool[index]
+	if disc then
+		return disc
+	end
+	local part = Instance.new("Part")
+	part.Name = "LandShadow"
+	part.Shape = Enum.PartType.Cylinder
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Material = Enum.Material.Neon
+	part.Color = Config.LAND_SHADOW_COLOR
+	part.Transparency = 1
+	part.Parent = folder
+	shadowPool[index] = part
+	return part
+end
+
+-- Only pieces in the air can cast a warning; the showcase piece is anchored.
+local function wantsShadow(debris: BasePart): boolean
+	if debris.Anchored then
+		return false
+	end
+	local state = debris:GetAttribute("State")
+	return state == nil or state == "Loose" or state == "Thrown"
+end
+
+-- Exclude debris (physics parts and our d10s) and every character so the ray
+-- finds the surface the piece will actually land on.
+local function refreshShadowFilter()
+	local ignore: { Instance } = { folder }
+	if not arenaDebris or not arenaDebris.Parent then
+		local arena = workspace:FindFirstChild("DebrisClearArena")
+		arenaDebris = arena and arena:FindFirstChild("Debris")
+	end
+	if arenaDebris then
+		table.insert(ignore, arenaDebris)
+	end
+	for _, player in Players:GetPlayers() do
+		if player.Character then
+			table.insert(ignore, player.Character)
+		end
+	end
+	shadowParams.FilterDescendantsInstances = ignore
+end
+
+-- Cylinder parts lie along X; point that axis down the surface normal.
+local function surfaceFrame(position: Vector3, normal: Vector3): CFrame
+	local reference = if math.abs(normal.Y) < 0.9 then Vector3.yAxis else Vector3.zAxis
+	return CFrame.fromMatrix(position, normal, reference:Cross(normal).Unit)
+end
+
+-- Places disc `index` under `debris`; false when there is nothing to show.
+local function placeShadow(debris: BasePart, index: number): boolean
+	local origin = debris.Position
+	local reach = Config.LAND_SHADOW_HEIGHT + SHADOW_RAY_MARGIN
+	local hit = workspace:Raycast(origin, Vector3.new(0, -reach, 0), shadowParams)
+	if not hit then
+		return false
+	end
+	local height = math.max(0, hit.Distance - debris.Size.Y / 2)
+	if height < SHADOW_REST_HEIGHT then
+		return false
+	end
+	-- t = 1 far away, 0 about to land.
+	local t = math.clamp(height / Config.LAND_SHADOW_HEIGHT, 0, 1)
+	local radius = Config.LAND_SHADOW_MAX_RADIUS + (SHADOW_MIN_RADIUS - Config.LAND_SHADOW_MAX_RADIUS) * t
+	local disc = shadowDisc(index)
+	disc.Size = Vector3.new(SHADOW_THICKNESS, radius * 2, radius * 2)
+	disc.Transparency = SHADOW_NEAR_TRANSPARENCY + (SHADOW_FAR_TRANSPARENCY - SHADOW_NEAR_TRANSPARENCY) * t
+	disc.CFrame = surfaceFrame(hit.Position + hit.Normal * SHADOW_LIFT, hit.Normal)
+	return true
+end
+
+local function hideShadows(fromIndex: number)
+	for i = fromIndex, #shadowPool do
+		shadowPool[i].Transparency = 1
 	end
 end
 
+---------------------------------------------------------------------------
+-- Public
+---------------------------------------------------------------------------
 -- The locally rendered d10 for a server debris part, if it has one.
 function DebrisVisuals.visualFor(debris: BasePart): BasePart?
-	return tracked[debris]
+	local entry = tracked[debris]
+	return entry and entry.visual
+end
+
+-- Cosmetic offset applied to a piece's local visual (throw wind-up etc.).
+-- nil clears it.
+function DebrisVisuals.setOffset(debris: BasePart, offset: CFrame?)
+	offsets[debris] = offset
 end
 
 function DebrisVisuals.start()
 	folder = Instance.new("Folder")
 	folder.Name = "DebrisClearLocalVisuals"
 	folder.Parent = workspace
+	shadowParams.FilterType = Enum.RaycastFilterType.Exclude
 	getTemplate() -- build once up front; CreateMeshPartAsync yields
 
 	CollectionService:GetInstanceAddedSignal(DEBRIS_TAG):Connect(track)
@@ -2480,20 +2880,333 @@ function DebrisVisuals.start()
 	end
 
 	RunService.RenderStepped:Connect(function()
-		for debris, visual in tracked do
-			if debris.Parent then
-				visual.CFrame = debris.CFrame
-			else
+		local shadows = 0
+		local filterReady = false
+		for debris, entry in tracked do
+			if not debris.Parent then
 				untrack(debris)
+				continue
+			end
+			local visual = entry.visual
+			if visual then
+				local offset = offsets[debris]
+				visual.CFrame = if offset then debris.CFrame * offset else debris.CFrame
+			end
+			if Config.LAND_SHADOW_ENABLED and shadows < MAX_SHADOWS and wantsShadow(debris) then
+				if not filterReady then
+					refreshShadowFilter()
+					filterReady = true
+				end
+				if placeShadow(debris, shadows + 1) then
+					shadows += 1
+				end
 			end
 		end
+		hideShadows(shadows + 1)
 	end)
 end
 
 return DebrisVisuals
 ```
 
-### 21. `StarterPlayer.StarterPlayerScripts.DebrisClear.Hud`: **ModuleScript**
+### 21. `StarterPlayer.StarterPlayerScripts.DebrisClear.EffectsController`: **ModuleScript**
+
+_Repo file: `src/client/EffectsController.luau`_
+
+```lua
+--!strict
+-- Camera shake, impact puffs and the winner focus, driven by the server's
+-- "Effects" remote (see Remotes.luau for the kinds). Purely cosmetic: every
+-- argument is type-checked and a malformed event is ignored.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
+local Config = require(Shared.Config)
+local Remotes = require(Shared.Remotes)
+
+type PuffSpec = { count: number, scale: number, color: Color3 }
+
+local EffectsController = {}
+
+local player = Players.LocalPlayer
+local rng = Random.new()
+local effectsFolder: Folder
+
+-- Shake intensity is in "units": each unit adds a random +-SHAKE_DEGREES of
+-- pitch and yaw per frame. A burst decays to zero SHAKE_DECAY_TIME after its peak.
+local SHAKE_DEGREES = 0.6
+local SHAKE_DECAY_TIME = 0.4
+local shakeIntensity = 0
+local shakePeak = 0
+local lastShakeOffset = CFrame.identity -- rotation applied to the camera last frame
+
+-- Dust puffs (Land uses scale 1; Crush is bigger and darker).
+local PUFF_PART_LIFETIME = 1.5
+local PUFF_SIZE = NumberRange.new(0.6, 2) -- start -> end of a particle's life
+local PUFF_TRANSPARENCY = NumberRange.new(0.3, 1)
+local PUFF_LIFETIME = 0.5
+local PUFF_SPEED = 6
+local PUFF_SPREAD = 60
+local PUFF_GRAVITY = -4
+local LAND_PUFF: PuffSpec = { count = 12, scale = 1, color = Color3.fromRGB(170, 170, 175) }
+local CRUSH_PUFF: PuffSpec = { count = 30, scale = 2.2, color = Color3.fromRGB(70, 70, 78) }
+
+-- Winner celebration.
+local CONFETTI = {
+	height = 12, -- studs above the deck
+	count = 60, -- per emitter
+	partLifetime = 5,
+	lifetime = NumberRange.new(1.5, 2.5),
+	speed = NumberRange.new(20, 35),
+	spread = 75,
+	gravity = -25,
+	drag = 1.5,
+	colors = {
+		{ Color3.fromRGB(255, 220, 60), Color3.fromRGB(255, 80, 120) },
+		{ Color3.fromRGB(80, 220, 255), Color3.fromRGB(150, 90, 255) },
+	},
+}
+local WIN_CAMERA = {
+	distance = 45, -- horizontal studs from the platform center, toward the arena center
+	height = 25,
+	tweenTime = 1,
+}
+local endFocus: (() -> ())? = nil
+
+---------------------------------------------------------------------------
+-- Camera shake
+---------------------------------------------------------------------------
+local function shake(magnitude: number)
+	if magnitude <= 0 then
+		return
+	end
+	shakeIntensity += magnitude
+	shakePeak = math.max(shakePeak, shakeIntensity)
+end
+
+local function stepShake(dt: number)
+	local camera = workspace.CurrentCamera
+	if not camera or camera.CameraType == Enum.CameraType.Scriptable then
+		-- A Scriptable camera (winner focus) is ours alone: leave it untouched.
+		lastShakeOffset = CFrame.identity
+	else
+		local offset = CFrame.identity
+		if shakeIntensity > 0 then
+			local amplitude = math.rad(SHAKE_DEGREES) * shakeIntensity
+			local pitch = rng:NextNumber(-amplitude, amplitude)
+			local yaw = rng:NextNumber(-amplitude, amplitude)
+			offset = CFrame.Angles(pitch, yaw, 0)
+		end
+		-- The default camera scripts derive each frame's look direction from
+		-- the previous frame's CFrame, so undo last frame's offset before
+		-- applying this one or the shake random-walks the view. Runs once more
+		-- after the intensity hits zero so the final offset is removed too.
+		if offset ~= lastShakeOffset then
+			camera.CFrame = camera.CFrame * lastShakeOffset:Inverse() * offset
+		end
+		lastShakeOffset = offset
+	end
+	if shakeIntensity > 0 then
+		shakeIntensity = math.max(0, shakeIntensity - shakePeak * dt / SHAKE_DECAY_TIME)
+		if shakeIntensity == 0 then
+			shakePeak = 0
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Particles
+---------------------------------------------------------------------------
+local function effectPart(position: Vector3, lifetime: number): Part
+	local part = Instance.new("Part")
+	part.Name = "Effect"
+	part.Size = Vector3.one
+	part.CFrame = CFrame.new(position)
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Transparency = 1
+	part.Parent = effectsFolder
+	task.delay(lifetime, function()
+		part:Destroy()
+	end)
+	return part
+end
+
+local function puff(position: Vector3, spec: PuffSpec)
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Rate = 0
+	emitter.Color = ColorSequence.new(spec.color)
+	emitter.Size = NumberSequence.new(PUFF_SIZE.Min * spec.scale, PUFF_SIZE.Max * spec.scale)
+	emitter.Transparency = NumberSequence.new(PUFF_TRANSPARENCY.Min, PUFF_TRANSPARENCY.Max)
+	emitter.Lifetime = NumberRange.new(PUFF_LIFETIME)
+	emitter.Speed = NumberRange.new(PUFF_SPEED * spec.scale)
+	emitter.SpreadAngle = Vector2.new(PUFF_SPREAD, PUFF_SPREAD)
+	emitter.Acceleration = Vector3.new(0, PUFF_GRAVITY, 0)
+	emitter.Parent = effectPart(position, PUFF_PART_LIFETIME)
+	emitter:Emit(spec.count)
+end
+
+local function confetti(position: Vector3)
+	local part = effectPart(position + Vector3.new(0, CONFETTI.height, 0), CONFETTI.partLifetime)
+	for _, colors in CONFETTI.colors do
+		local emitter = Instance.new("ParticleEmitter")
+		emitter.Rate = 0
+		emitter.Color = ColorSequence.new(colors[1], colors[2])
+		emitter.LightEmission = 0.6
+		emitter.Size = NumberSequence.new(0.5, 0.25)
+		emitter.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(0.7, 0),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		emitter.Lifetime = CONFETTI.lifetime
+		emitter.Speed = CONFETTI.speed
+		emitter.SpreadAngle = Vector2.new(CONFETTI.spread, CONFETTI.spread)
+		emitter.Rotation = NumberRange.new(0, 360)
+		emitter.RotSpeed = NumberRange.new(-360, 360)
+		emitter.Acceleration = Vector3.new(0, CONFETTI.gravity, 0)
+		emitter.Drag = CONFETTI.drag
+		emitter.EmissionDirection = Enum.NormalId.Top
+		emitter.Parent = part
+		emitter:Emit(CONFETTI.count)
+	end
+end
+
+---------------------------------------------------------------------------
+-- Winner focus
+---------------------------------------------------------------------------
+local function restoreCamera()
+	pcall(function()
+		local camera = workspace.CurrentCamera
+		camera.CameraType = Enum.CameraType.Custom
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			camera.CameraSubject = humanoid
+		end
+	end)
+end
+
+-- Scriptable camera on the arena-center side of the platform, looking at it,
+-- for WIN_CAMERA_TIME. Handed back early only if our character respawns: a
+-- death alone (the crush that ended the round) needs nothing restored, and
+-- the respawn is what needs CameraType Custom plus the new Humanoid as subject.
+local function focusWinner(position: Vector3)
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	if endFocus then
+		endFocus()
+	end
+
+	local toCenter = Vector3.new(Config.ARENA_CENTER.X - position.X, 0, Config.ARENA_CENTER.Z - position.Z)
+	local side = if toCenter.Magnitude > 0.01 then toCenter.Unit else Vector3.zAxis
+	local eye = position + side * WIN_CAMERA.distance + Vector3.new(0, WIN_CAMERA.height, 0)
+
+	camera.CameraType = Enum.CameraType.Scriptable
+	local tween = TweenService:Create(
+		camera,
+		TweenInfo.new(math.min(WIN_CAMERA.tweenTime, Config.WIN_CAMERA_TIME), Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+		{ CFrame = CFrame.lookAt(eye, position) }
+	)
+	tween:Play()
+
+	local respawned: RBXScriptConnection? = nil
+	local done = false
+	local function finish()
+		if done then
+			return
+		end
+		done = true
+		endFocus = nil
+		if respawned then
+			respawned:Disconnect()
+		end
+		pcall(tween.Cancel, tween)
+		restoreCamera()
+	end
+	endFocus = finish
+
+	respawned = player.CharacterAdded:Connect(finish)
+	task.delay(Config.WIN_CAMERA_TIME, finish)
+end
+
+---------------------------------------------------------------------------
+-- Event handlers
+---------------------------------------------------------------------------
+local function isOurSlot(slot: number): boolean
+	return player:GetAttribute("PlatformSlot") == slot
+end
+
+local function onLand(position: Vector3, slot: number)
+	puff(position, LAND_PUFF)
+	if isOurSlot(slot) then
+		shake(Config.SHAKE_LAND)
+	end
+end
+
+local function onCrush(position: Vector3, slot: number)
+	puff(position, CRUSH_PUFF)
+	if isOurSlot(slot) then
+		shake(Config.SHAKE_CRUSH)
+		return
+	end
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	local distance = (camera.CFrame.Position - position).Magnitude
+	local falloff = 1 - math.clamp(distance / Config.SHAKE_FALLOFF_RANGE, 0, 1)
+	shake(Config.SHAKE_CRUSH * falloff)
+end
+
+local function onWin(position: Vector3, slot: number)
+	if slot <= 0 then
+		shake(Config.SHAKE_LAND)
+		return
+	end
+	confetti(position)
+	if Config.WIN_CAMERA_TIME > 0 then
+		focusWinner(position)
+	end
+end
+
+local function onEffect(kind: unknown, position: unknown, slot: unknown)
+	if typeof(kind) ~= "string" or typeof(position) ~= "Vector3" or typeof(slot) ~= "number" then
+		return
+	end
+	local at = position :: Vector3
+	local slotNumber = slot :: number
+	if kind == "Land" then
+		onLand(at, slotNumber)
+	elseif kind == "Crush" then
+		onCrush(at, slotNumber)
+	elseif kind == "Win" then
+		onWin(at, slotNumber)
+	end
+end
+
+function EffectsController.start()
+	effectsFolder = Instance.new("Folder")
+	effectsFolder.Name = "DebrisClearEffects"
+	effectsFolder.Parent = workspace
+
+	RunService:BindToRenderStep("DebrisClearShake", Enum.RenderPriority.Camera.Value + 1, stepShake)
+	Remotes.get("Effects").OnClientEvent:Connect(onEffect)
+end
+
+return EffectsController
+```
+
+### 22. `StarterPlayer.StarterPlayerScripts.DebrisClear.Hud`: **ModuleScript**
 
 _Repo file: `src/client/Hud.luau`_
 
@@ -2537,7 +3250,7 @@ end
 return Hud
 ```
 
-### 22. `StarterPlayer.StarterPlayerScripts.DebrisClear.InteractionController`: **ModuleScript**
+### 23. `StarterPlayer.StarterPlayerScripts.DebrisClear.InteractionController`: **ModuleScript**
 
 _Repo file: `src/client/InteractionController.luau`_
 
@@ -2553,13 +3266,18 @@ _Repo file: `src/client/InteractionController.luau`_
 --          | tap/click the action button (aims at screen center)
 --
 -- While holding, a dotted arc previews the exact server trajectory (shared
--- Ballistics module). Green = reachable, orange = out of range.
+-- Ballistics module). Green = reachable, orange = out of range. A bar on the
+-- button counts down the server's hold limit ("HoldUntil").
+-- The server's "Throwing" attribute drives a local wind-up: the held d10's
+-- visual pulls back then snaps forward, and the right arm (raised while
+-- holding) swings with it. All of that is cosmetic and local.
 -- Also applies server-issued knockback to our own character.
 
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
@@ -2569,6 +3287,7 @@ local Ballistics = require(Shared.Ballistics)
 local DebrisVisuals = require(script.Parent.DebrisVisuals)
 
 type InputMode = "Mouse" | "Touch" | "Gamepad"
+type Windup = { part: BasePart?, startedAt: number, snapped: boolean }
 
 local InteractionController = {}
 
@@ -2576,6 +3295,9 @@ local player = Players.LocalPlayer
 local throwRemote: RemoteEvent
 
 local holding = false
+local heldPart: BasePart? = nil
+local holdUntil: number? = nil
+local windup: Windup? = nil
 local targetPrompt: ProximityPrompt? = nil
 local inputMode: InputMode = "Mouse"
 local lastThrowRequest = 0
@@ -2585,6 +3307,8 @@ local stunToken = 0
 local actionButton: TextButton
 local actionTitle: TextLabel
 local actionKey: TextLabel
+local holdBar: Frame
+local holdFill: Frame
 local crosshair: Frame
 local highlight: Highlight
 local arcFolder: Folder
@@ -2595,6 +3319,23 @@ local COLOR_GRAB = Color3.fromRGB(70, 160, 255)
 local COLOR_THROW = Color3.fromRGB(255, 120, 40)
 local COLOR_REACHABLE = Color3.fromRGB(90, 230, 120)
 local COLOR_OUT_OF_RANGE = Color3.fromRGB(255, 150, 40)
+local COLOR_HOLD = Color3.new(1, 1, 1)
+local COLOR_HOLD_LOW = Color3.fromRGB(255, 60, 60)
+local HOLD_WARN_TIME = 1 -- seconds left when the countdown turns red
+
+-- Wind-up: the held visual eases to PULLBACK over THROW_WINDUP, then sits at
+-- SNAP for SNAP_TIME as the piece leaves. Offsets are in the piece's frame,
+-- which matches the character's while welded (+X right, +Y up, -Z forward).
+local WINDUP_PULLBACK = CFrame.new(0.6, 0.6, 0.9)
+local WINDUP_SNAP = CFrame.new(0, 0, -1.2)
+local WINDUP_SNAP_TIME = 0.08
+
+-- Arm raise. Angles are the shoulder swing forward/up from the hanging pose:
+-- 90 = straight ahead, 180 = straight up (the piece sits directly overhead).
+local ARM_HOLD_ANGLE = math.rad(165)
+local ARM_WINDUP_ANGLE = math.rad(200) -- cocked back past vertical
+local ARM_THROW_ANGLE = math.rad(60) -- follow-through
+local ARM_TWEEN_TIME = 0.12 -- raise on pickup / settle back after a throw
 
 ---------------------------------------------------------------------------
 -- Input mode
@@ -2618,6 +3359,11 @@ end
 ---------------------------------------------------------------------------
 -- Aiming
 ---------------------------------------------------------------------------
+local function debrisFolder(): Instance?
+	local arena = workspace:FindFirstChild("DebrisClearArena")
+	return arena and arena:FindFirstChild("Debris")
+end
+
 local function aimScreenPoint(useCursor: boolean): Vector2
 	if useCursor then
 		return UserInputService:GetMouseLocation()
@@ -2639,10 +3385,9 @@ local function aimWorldPoint(screen: Vector2): Vector3
 			table.insert(ignore, folder)
 		end
 	end
-	local arena = workspace:FindFirstChild("DebrisClearArena")
-	local debrisFolder = arena and arena:FindFirstChild("Debris")
-	if debrisFolder then
-		table.insert(ignore, debrisFolder)
+	local debris = debrisFolder()
+	if debris then
+		table.insert(ignore, debris)
 	end
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -2655,6 +3400,112 @@ local function holdOrigin(): Vector3?
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	return root and (root.CFrame * Config.HOLD_OFFSET).Position
+end
+
+-- The piece the server welded to us: the debris whose WeldConstraint hangs
+-- off our root. May lag the attribute by a frame, so callers retry.
+local function findHeldPart(): BasePart?
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local debris = debrisFolder()
+	if not root or not debris then
+		return nil
+	end
+	for _, child in debris:GetChildren() do
+		local weld = child:FindFirstChildOfClass("WeldConstraint")
+		if weld and weld.Part0 == root and child:IsA("BasePart") then
+			return child
+		end
+	end
+	return nil
+end
+
+---------------------------------------------------------------------------
+-- Arm raise (cosmetic, local). Motor6D.C0 edits compose with the animation
+-- Transform, so idle/walk animations keep playing on top of the pose.
+---------------------------------------------------------------------------
+local armJoint: Motor6D? = nil
+local armOriginalC0: CFrame? = nil
+local armTween: Tween? = nil
+
+-- The right shoulder of the current rig and the C0 rotation that swings the
+-- arm forward/up by `angle` around it.
+--   R15: RightShoulder.C0 has no rotation, so C0 * Angles(angle, 0, 0) pitches
+--        about the torso's +X (right) axis. Right-hand rule: +X rotation takes
+--        -Y (hanging) toward -Z (forward), so positive angles swing the arm
+--        forward and up.
+--   R6:  "Right Shoulder".C0 is rotated 90 about Y, which points the joint's
+--        local Z along the torso's +X. The same forward/up swing is therefore
+--        a rotation about local Z (the axis Motor6D.DesiredAngle turns on;
+--        it's why the classic tool pose used a positive DesiredAngle).
+local function shoulderPose(angle: number): (Motor6D?, CFrame?)
+	local character = player.Character
+	if not character then
+		return nil, nil
+	end
+	local upperArm = character:FindFirstChild("RightUpperArm")
+	local r15 = upperArm and upperArm:FindFirstChild("RightShoulder")
+	if r15 and r15:IsA("Motor6D") then
+		return r15, CFrame.Angles(angle, 0, 0)
+	end
+	local torso = character:FindFirstChild("Torso")
+	local r6 = torso and torso:FindFirstChild("Right Shoulder")
+	if r6 and r6:IsA("Motor6D") then
+		return r6, CFrame.Angles(0, 0, angle)
+	end
+	return nil, nil
+end
+
+local function armStopTween()
+	if armTween then
+		armTween:Cancel()
+		armTween = nil
+	end
+end
+
+-- Put the rig's own C0 back exactly (hold ended, died, respawned).
+local function armRestore()
+	if not Config.ARM_RAISE then
+		return
+	end
+	pcall(function()
+		armStopTween()
+		local joint, original = armJoint, armOriginalC0
+		if joint and original then
+			joint.C0 = original
+		end
+	end)
+end
+
+-- Tween the shoulder to `angle` over `duration` seconds.
+local function armSwing(angle: number, duration: number)
+	if not Config.ARM_RAISE then
+		return
+	end
+	pcall(function()
+		local joint, rotation = shoulderPose(angle)
+		if joint ~= armJoint then
+			-- New rig: hand the old one back and remember this one's untouched C0.
+			armRestore()
+			armJoint = joint
+			armOriginalC0 = if joint then joint.C0 else nil
+		end
+		local original = armOriginalC0
+		if not joint or not rotation or not original then
+			return
+		end
+		armStopTween()
+		local info = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		local tween = TweenService:Create(joint, info, { C0 = original * rotation })
+		armTween = tween
+		tween:Play()
+	end)
+end
+
+local function armForget()
+	armStopTween()
+	armJoint = nil
+	armOriginalC0 = nil
 end
 
 ---------------------------------------------------------------------------
@@ -2716,9 +3567,74 @@ local function refresh()
 		actionButton.Visible = false
 		highlight.Adornee = nil
 	end
+	holdBar.Visible = holding
 	-- Mouse throws aim at the cursor; everything else aims at screen center.
 	crosshair.Visible = holding and inputMode ~= "Mouse"
 	arcFolder.Parent = if holding then workspace else nil
+end
+
+---------------------------------------------------------------------------
+-- Throw wind-up (server "Throwing" attribute -> local animation)
+---------------------------------------------------------------------------
+local function endWindup()
+	local current = windup
+	if not current then
+		return
+	end
+	windup = nil
+	if current.part then
+		DebrisVisuals.setOffset(current.part, nil)
+	end
+	if holding then
+		armSwing(ARM_HOLD_ANGLE, ARM_TWEEN_TIME)
+	else
+		armRestore()
+	end
+end
+
+local function beginWindup()
+	endWindup()
+	windup = { part = heldPart, startedAt = os.clock(), snapped = false }
+	armSwing(ARM_WINDUP_ANGLE, Config.THROW_WINDUP)
+end
+
+local function updateWindup()
+	local current = windup
+	if not current then
+		return
+	end
+	local elapsed = os.clock() - current.startedAt
+	if elapsed >= Config.THROW_WINDUP + WINDUP_SNAP_TIME then
+		endWindup()
+		return
+	end
+	if elapsed >= Config.THROW_WINDUP and not current.snapped then
+		current.snapped = true
+		armSwing(ARM_THROW_ANGLE, WINDUP_SNAP_TIME)
+	end
+	-- Imported-mesh debris has no local visual; then only the arm animates.
+	local part = current.part
+	if part and part.Parent and DebrisVisuals.visualFor(part) then
+		local offset = if current.snapped
+			then WINDUP_SNAP
+			else CFrame.identity:Lerp(WINDUP_PULLBACK, elapsed / Config.THROW_WINDUP)
+		DebrisVisuals.setOffset(part, offset)
+	end
+end
+
+local function onThrowingChanged()
+	if player:GetAttribute("Throwing") == true then
+		beginWindup()
+	elseif windup and not windup.snapped then
+		-- On a launch HoldingDebris and Throwing clear together (in either
+		-- order); a wind-up that ends with the hold still on was cancelled.
+		task.defer(function()
+			local current = windup
+			if current and not current.snapped and holding then
+				endWindup()
+			end
+		end)
+	end
 end
 
 local function onHoldingChanged()
@@ -2727,12 +3643,24 @@ local function onHoldingChanged()
 	ProximityPromptService.Enabled = not holding
 	if holding then
 		targetPrompt = nil
+		heldPart = findHeldPart()
+		armSwing(ARM_HOLD_ANGLE, ARM_TWEEN_TIME)
+	else
+		heldPart = nil
+		if not windup then
+			armRestore() -- a throw in flight restores when its swing ends
+		end
 	end
 	refresh()
 end
 
+local function onHoldUntilChanged()
+	local value = player:GetAttribute("HoldUntil")
+	holdUntil = if typeof(value) == "number" then value else nil
+end
+
 ---------------------------------------------------------------------------
--- Aim preview
+-- Per-frame: aim preview and hold countdown
 ---------------------------------------------------------------------------
 local function updateArc()
 	if not holding then
@@ -2760,6 +3688,29 @@ local function updateArc()
 	landingMarker.Transparency = if reachable then 0.2 else 1
 	landingMarker.Color = color
 	landingMarker.CFrame = CFrame.new(target + Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, 0, math.rad(90))
+end
+
+-- Bar under the THROW label: full at pickup, empty at HoldUntil, red near the end.
+local function updateHoldBar()
+	if not holding then
+		return
+	end
+	local deadline = holdUntil
+	local remaining = if deadline then deadline - workspace:GetServerTimeNow() else Config.HOLD_MAX_TIME
+	holdFill.Size = UDim2.fromScale(math.clamp(remaining / Config.HOLD_MAX_TIME, 0, 1), 1)
+	holdFill.BackgroundColor3 = if remaining <= HOLD_WARN_TIME then COLOR_HOLD_LOW else COLOR_HOLD
+end
+
+local function onRenderStepped()
+	if holding then
+		local part = heldPart
+		if not part or not part.Parent then
+			heldPart = findHeldPart()
+		end
+	end
+	updateArc()
+	updateHoldBar()
+	updateWindup()
 end
 
 ---------------------------------------------------------------------------
@@ -2835,6 +3786,31 @@ local function buildUi()
 	actionKey.TextTransparency = 0.15
 	actionKey.Parent = actionButton
 
+	-- Hold countdown: a thin track under the key label whose fill shrinks
+	-- toward the middle.
+	holdBar = Instance.new("Frame")
+	holdBar.Name = "HoldBar"
+	holdBar.AnchorPoint = Vector2.new(0.5, 0)
+	holdBar.Position = UDim2.fromScale(0.5, 0.82)
+	holdBar.Size = UDim2.fromScale(0.5, 0.05)
+	holdBar.BackgroundColor3 = Color3.new(0, 0, 0)
+	holdBar.BackgroundTransparency = 0.5
+	holdBar.BorderSizePixel = 0
+	holdBar.Visible = false
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0.5, 0)
+	barCorner.Parent = holdBar
+	holdFill = Instance.new("Frame")
+	holdFill.Name = "Fill"
+	holdFill.AnchorPoint = Vector2.new(0.5, 0)
+	holdFill.Position = UDim2.fromScale(0.5, 0)
+	holdFill.Size = UDim2.fromScale(1, 1)
+	holdFill.BackgroundColor3 = COLOR_HOLD
+	holdFill.BorderSizePixel = 0
+	barCorner:Clone().Parent = holdFill
+	holdFill.Parent = holdBar
+	holdBar.Parent = actionButton
+
 	crosshair = Instance.new("Frame")
 	crosshair.Name = "Crosshair"
 	crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2903,6 +3879,13 @@ local function buildWorldHelpers()
 	landingMarker.Name = "LandingMarker"
 end
 
+-- A fresh rig has untouched joints; a dying one gets its shoulder back.
+local function onCharacterAdded(character: Model)
+	armForget()
+	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+	humanoid.Died:Connect(armRestore)
+end
+
 function InteractionController.start()
 	throwRemote = Remotes.get("ThrowDebris")
 	Remotes.get("Knockback").OnClientEvent:Connect(onKnockback)
@@ -2948,16 +3931,24 @@ function InteractionController.start()
 		end
 	end)
 
+	player.CharacterAdded:Connect(onCharacterAdded)
+	if player.Character then
+		task.spawn(onCharacterAdded, player.Character)
+	end
+
+	player:GetAttributeChangedSignal("HoldUntil"):Connect(onHoldUntilChanged)
+	player:GetAttributeChangedSignal("Throwing"):Connect(onThrowingChanged)
 	player:GetAttributeChangedSignal("HoldingDebris"):Connect(onHoldingChanged)
+	onHoldUntilChanged()
 	onHoldingChanged()
 
-	RunService.RenderStepped:Connect(updateArc)
+	RunService.RenderStepped:Connect(onRenderStepped)
 end
 
 return InteractionController
 ```
 
-### 23. `StarterPlayer.StarterPlayerScripts.DebrisClear.RingMeterController`: **ModuleScript**
+### 24. `StarterPlayer.StarterPlayerScripts.DebrisClear.RingMeterController`: **ModuleScript**
 
 _Repo file: `src/client/RingMeterController.luau`_
 
@@ -2971,17 +3962,30 @@ _Repo file: `src/client/RingMeterController.luau`_
 -- displayed fraction p (1 = full, 0 = empty, clockwise from 12 o'clock):
 --   Right half rotation = clamp(p, 0, 0.5) * 360
 --   Left  half rotation = clamp(p, 0.5, 1) * 360
+--
+-- Rival platforms also get a local BillboardGui above the deck (owner name and
+-- a load-used bar) driven by the same tween, hidden for our own platform.
 
 local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("DebrisClear")
 local Config = require(Shared.Config)
 
+type Billboard = { gui: BillboardGui, owner: TextLabel, fill: Frame, value: TextLabel }
+
 local PLATFORM_TAG = "DebrisClearPlatform"
+local BILLBOARD_SIZE = UDim2.fromOffset(180, 52)
+local BILLBOARD_NAME_HEIGHT = 24 -- px; the bar takes the rest
+local BILLBOARD_BAR_HEIGHT = 18
+local BILLBOARD_BAR_INSET = 10 -- px each side
+local BILLBOARD_TRACK_COLOR = Color3.fromRGB(30, 30, 35)
 
 local RingMeterController = {}
+
+local player = Players.LocalPlayer
 
 local function colorOf(guiObject: GuiObject): (Color3) -> ()
 	local stroke = guiObject:FindFirstChildOfClass("UIStroke")
@@ -2993,6 +3997,72 @@ local function colorOf(guiObject: GuiObject): (Color3) -> ()
 	return function(c)
 		(guiObject :: ImageLabel).ImageColor3 = c
 	end
+end
+
+local function roundedCorner(parent: Instance)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.5, 0)
+	corner.Parent = parent
+end
+
+-- Owner name over a "load used" bar, parented to PlayerGui so it is local.
+local function buildBillboard(meter: Instance, slot: number): Billboard
+	local gui = Instance.new("BillboardGui")
+	gui.Name = `LoadBillboard{slot}`
+	gui.Adornee = meter
+	gui.Size = BILLBOARD_SIZE
+	gui.StudsOffsetWorldSpace = Vector3.new(0, Config.BILLBOARD_HEIGHT, 0)
+	gui.MaxDistance = Config.BILLBOARD_MAX_DISTANCE
+	gui.AlwaysOnTop = false
+	gui.LightInfluence = 0
+	gui.ResetOnSpawn = false
+	gui.Enabled = false
+
+	local owner = Instance.new("TextLabel")
+	owner.Name = "Owner"
+	owner.BackgroundTransparency = 1
+	owner.Size = UDim2.new(1, 0, 0, BILLBOARD_NAME_HEIGHT)
+	owner.Font = Enum.Font.GothamBold
+	owner.TextScaled = true
+	owner.TextColor3 = Color3.new(1, 1, 1)
+	owner.TextStrokeTransparency = 0.4
+	owner.Text = ""
+	owner.Parent = gui
+
+	-- Bar centered in the space under the name.
+	local gap = (BILLBOARD_SIZE.Y.Offset - BILLBOARD_NAME_HEIGHT - BILLBOARD_BAR_HEIGHT) / 2
+	local bar = Instance.new("Frame")
+	bar.Name = "Bar"
+	bar.AnchorPoint = Vector2.new(0.5, 1)
+	bar.Position = UDim2.new(0.5, 0, 1, -gap)
+	bar.Size = UDim2.new(1, -2 * BILLBOARD_BAR_INSET, 0, BILLBOARD_BAR_HEIGHT)
+	bar.BackgroundColor3 = BILLBOARD_TRACK_COLOR
+	bar.BackgroundTransparency = 0.2
+	bar.BorderSizePixel = 0
+	roundedCorner(bar)
+	bar.Parent = gui
+
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.BackgroundColor3 = Config.RING_COLOR_SAFE
+	fill.BorderSizePixel = 0
+	roundedCorner(fill)
+	fill.Parent = bar
+
+	local value = Instance.new("TextLabel")
+	value.Name = "Value"
+	value.BackgroundTransparency = 1
+	value.Size = UDim2.fromScale(1, 1)
+	value.Font = Enum.Font.GothamBlack
+	value.TextScaled = true
+	value.TextColor3 = Color3.new(1, 1, 1)
+	value.TextStrokeTransparency = 0.4
+	value.ZIndex = 2
+	value.Parent = bar
+
+	gui.Parent = player:WaitForChild("PlayerGui")
+	return { gui = gui, owner = owner, fill = fill, value = value }
 end
 
 local function bind(model: Instance)
@@ -3010,6 +4080,9 @@ local function bind(model: Instance)
 	local ownerLabel = root:WaitForChild("Owner") :: TextLabel
 	local setLeftColor, setRightColor = colorOf(leftFill), colorOf(rightFill)
 
+	local slot = (model:GetAttribute("Slot") :: number?) or 0
+	local billboard: Billboard? = if Config.BILLBOARD_ENABLED then buildBillboard(meter :: Instance, slot) else nil
+
 	local shown = Instance.new("NumberValue")
 	shown.Value = 1
 
@@ -3019,6 +4092,11 @@ local function bind(model: Instance)
 		local color = Config.RING_COLOR_DANGER:Lerp(Config.RING_COLOR_SAFE, p)
 		setLeftColor(color)
 		setRightColor(color)
+		if billboard then
+			-- The bar fills as the ring drains.
+			billboard.fill.Size = UDim2.fromScale(1 - p, 1)
+			billboard.fill.BackgroundColor3 = color
+		end
 	end
 	shown.Changed:Connect(render)
 
@@ -3027,6 +4105,9 @@ local function bind(model: Instance)
 		local capacity = (model:GetAttribute("Capacity") :: number?) or Config.PLATFORM_CAPACITY
 		local remaining = 1 - math.clamp(load / capacity, 0, 1)
 		valueLabel.Text = `{load} / {capacity}`
+		if billboard then
+			billboard.value.Text = string.format("%d / %d", math.round(load), math.round(capacity))
+		end
 		TweenService:Create(
 			shown,
 			TweenInfo.new(Config.RING_TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
@@ -3035,7 +4116,13 @@ local function bind(model: Instance)
 	end
 	local function refreshOwner()
 		local name = (model:GetAttribute("OwnerName") :: string?) or ""
-		if model:GetAttribute("Eliminated") then
+		local eliminated = model:GetAttribute("Eliminated") == true
+		if billboard then
+			-- Rivals only: an owned, live platform that isn't ours.
+			billboard.owner.Text = name
+			billboard.gui.Enabled = name ~= "" and not eliminated and player:GetAttribute("PlatformSlot") ~= slot
+		end
+		if eliminated then
 			name = if name ~= "" then `{name} - OUT` else "OUT"
 		end
 		ownerLabel.Text = name
@@ -3045,6 +4132,9 @@ local function bind(model: Instance)
 	model:GetAttributeChangedSignal("Capacity"):Connect(refresh)
 	model:GetAttributeChangedSignal("OwnerName"):Connect(refreshOwner)
 	model:GetAttributeChangedSignal("Eliminated"):Connect(refreshOwner)
+	if billboard then
+		player:GetAttributeChangedSignal("PlatformSlot"):Connect(refreshOwner)
+	end
 	render(1)
 	refresh()
 	refreshOwner()

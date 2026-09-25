@@ -18,6 +18,7 @@ local ThrowService = require(script.Parent.ThrowService)
 Players.CharacterAutoLoads = false
 
 Remotes.get("ThrowDebris") -- create the remotes before any client asks
+local effectsRemote = Remotes.get("Effects")
 Arena.build()
 DebrisService.init()
 ThrowService.init()
@@ -236,6 +237,13 @@ local function runRound()
 
 	local winner = LoadService.alivePlayers()[1]
 	setStatus(if winner then `{winner.DisplayName} wins!` else "Nobody survived!")
+	-- Confetti + winner camera on every client; a slot of 0 means nobody won.
+	local winnerPlatform = winner and LoadService.platformOf(winner)
+	if winner and winnerPlatform then
+		effectsRemote:FireAllClients("Win", winnerPlatform.topCFrame.Position, winnerPlatform.slot, winner.DisplayName)
+	else
+		effectsRemote:FireAllClients("Win", Config.ARENA_CENTER, 0, "")
+	end
 	ThrowService.releaseAll()
 	DebrisService.stopRound()
 	task.wait(Config.POST_ROUND_TIME)
